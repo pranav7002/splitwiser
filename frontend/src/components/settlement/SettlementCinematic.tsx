@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Lock, Shield, Check, Copy, Cpu, ArrowRight, Fingerprint, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { apiFetch } from "@/lib/api";
 
 type CinematicPhase =
   | "idle"
@@ -19,36 +20,41 @@ interface SettlementCinematicProps {
   open: boolean;
   onClose: () => void;
   onSettled: () => void;
+  groupId: string;
+  balances: any[];
+  members: any[];
 }
-
-const BALANCES = [
-  { name: "Tanishka", amount: 1400,  direction: "owed" as const },
-  { name: "Pranav",   amount: -600,  direction: "owes" as const },
-  { name: "Mihir",    amount: -800,  direction: "owes" as const },
-];
-
-const SETTLEMENTS = [
-  { from: "Pranav", to: "Tanishka", amount: 600 },
-  { from: "Mihir",  to: "Tanishka", amount: 800 },
-];
 
 const PROOF_STEPS = [
   { id: "canonicalize", label: "Canonicalizing balances", log: "balances committed" },
   { id: "algorithm", label: "Running settlement algorithm", log: "algorithm executed" },
   { id: "journal", label: "Committing journal", log: "journal sealed" },
-  { id: "proof", label: "Generating proof", log: "receipt generated" },
+  { id: "proof", label: "Generating zkVM proof", log: "receipt generated" },
   { id: "verify", label: "Verifying receipt shape", log: "receipt verified ✓" },
 ];
 
-const INPUT_HASH = "0x7f3a…e91d";
-const PROOF_HASH = "0x4b2c8e…f7a301d9";
 const ALGO_VERSION = "v1.2.0";
 
-export function SettlementCinematic({ open, onClose, onSettled }: SettlementCinematicProps) {
+export function SettlementCinematic({ open, onClose, onSettled, groupId, balances, members }: SettlementCinematicProps) {
   const [phase, setPhase] = useState<CinematicPhase>("idle");
   const [logs, setLogs] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
+
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [settlements, setSettlements] = useState<any[]>([]);
+  const [proofData, setProofData] = useState<any>(null);
+
+  // Derived state
+  const isComplete = phase === "proved" || phase === "executing" || phase === "settled";
+  const isProving = phase.startsWith("step-") || phase === "committing" || phase === "committed";
+
+  // Helper to format users
+  const getUserName = (id: string) => {
+    const user = members?.find(m => m.userId === id);
+    if (!user?.walletAddress) return id.slice(0, 8);
+    return `${user.walletAddress.slice(0, 6)}…${user.walletAddress.slice(-4)}`;
+  };
 
   const addLog = useCallback((msg: string) => {
     setLogs((prev) => [...prev, msg]);
@@ -61,73 +67,85 @@ export function SettlementCinematic({ open, onClose, onSettled }: SettlementCine
       setLogs([]);
       setCopied(false);
       setElapsedMs(0);
+      setJobId(null);
+      setSettlements([]);
+      setProofData(null);
     }
   }, [open]);
 
   // Timer during proving
   useEffect(() => {
-    if (
-      phase.startsWith("step-") ||
-      phase === "committing" ||
-      phase === "committed"
-    ) {
+    if (isProving) {
       const interval = setInterval(() => setElapsedMs((p) => p + 47), 47);
       return () => clearInterval(interval);
     }
-  }, [phase]);
+  }, [isProving]);
 
-  const startProving = () => {
+  // Polling for Job Status
+  useEffect(() => {
+    let pollInterval: any;
+    
+    if (jobId && (isProving || phase === "idle")) {
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await apiFetch<any>(`/settlements/status/${jobId}`);
+          
+          if (res.data.status === "processing" || res.data.status === "pending") {
+            // randomly cycle through phases just for cinematic effect while processing
+            const processingPhases: CinematicPhase[] = ["step-canonicalize", "step-algorithm", "step-journal", "step-proof"];
+            const currentIdx = processingPhases.indexOf(phase as any);
+            if (currentIdx > -1 && currentIdx < processingPhases.length -1) {
+              setPhase(processingPhases[currentIdx + 1]);
+            } else if (currentIdx === -1) {
+              setPhase("step-canonicalize");
+            }
+          } else if (res.data.status === "success") {
+            setPhase("step-verify");
+            setSettlements(res.data.result?.settlements || []);
+            setProofData(res.data.result?.proofDetails || {});
+            clearInterval(pollInterval);
+            
+            setTimeout(() => {
+              setPhase("proved");
+              addLog("Proof generated successfully.");
+            }, 1000);
+          } else if (res.data.status === "failed") {
+            clearInterval(pollInterval);
+            addLog("Error: Job Failed.");
+            setPhase("idle");
+          }
+        } catch (e) {
+          console.error("Polling error", e);
+        }
+      }, 2000);
+    }
+    
+    return () => clearInterval(pollInterval);
+  }, [jobId, phase, isProving, addLog]);
+
+  const startProving = async () => {
     setPhase("committing");
     setElapsedMs(0);
-   addLog("$ splitwiser prove- group taj-dinner");
-    addLog("locking input state...");
-
-    setTimeout(() => {
-      setPhase("committed");
-      addLog("inputs committed: " + INPUT_HASH);
-      addLog("algorithm: debt-simplification " + ALGO_VERSION);
-    }, 1200);
-
-    setTimeout(() => {
-      setPhase("step-canonicalize");
-      addLog("canonicalizing balances...");
-    }, 2200);
-
-    setTimeout(() => {
-      addLog(PROOF_STEPS[0].log);
-      setPhase("step-algorithm");
-      addLog("executing settlement inside zkVM...");
-    }, 3400);
-
-    setTimeout(() => {
-      addLog(PROOF_STEPS[1].log);
-      setPhase("step-journal");
-      addLog("committing journal entries...");
-    }, 4800);
-
-    setTimeout(() => {
-      addLog(PROOF_STEPS[2].log);
-      setPhase("step-proof");
-      addLog("generating STARK proof...");
-    }, 6200);
-
-    setTimeout(() => {
-      addLog(PROOF_STEPS[3].log);
-      setPhase("step-verify");
-      addLog("verifying receipt shape...");
-    }, 7800);
-
-    setTimeout(() => {
-      addLog(PROOF_STEPS[4].log);
-      addLog("proof complete: " + PROOF_HASH);
-      setPhase("proved");
-    }, 9200);
+    setLogs(["Initiating settlement via zkVM..."]);
+    
+    try {
+      const res = await apiFetch<any>('/settlements', {
+        method: 'POST',
+        body: JSON.stringify({ groupId })
+      });
+      setJobId(res.data.jobId);
+    } catch (err) {
+      console.error(err);
+      addLog("Failed to initiate settlement.");
+      setPhase("idle");
+    }
   };
 
-  const executeSettlement = () => {
+  const executeSettlement = async () => {
     setPhase("executing");
     addLog("submitting to smart account...");
     addLog("gas: sponsored via paymaster");
+    // Mock userop building and broadcast
     setTimeout(() => {
       addLog("UserOperation confirmed");
       addLog("settlement finalized ✓");
@@ -137,9 +155,11 @@ export function SettlementCinematic({ open, onClose, onSettled }: SettlementCine
   };
 
   const copyProofHash = () => {
-    navigator.clipboard.writeText(PROOF_HASH);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (proofData?.imageId) {
+      navigator.clipboard.writeText(proofData.imageId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const getStepStatus = (stepId: string) => {
@@ -152,7 +172,7 @@ export function SettlementCinematic({ open, onClose, onSettled }: SettlementCine
     };
     const phaseIndex = phase.startsWith("step-")
       ? stepMap[phase.replace("step-", "")]
-      : phase === "proved" || phase === "executing" || phase === "settled"
+      : isComplete
       ? 5
       : -1;
     const thisIndex = stepMap[stepId];
@@ -163,9 +183,6 @@ export function SettlementCinematic({ open, onClose, onSettled }: SettlementCine
   };
 
   if (!open) return null;
-
-  const isProving = phase.startsWith("step-") || phase === "committing" || phase === "committed";
-  const isComplete = phase === "proved" || phase === "executing" || phase === "settled";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -241,28 +258,23 @@ export function SettlementCinematic({ open, onClose, onSettled }: SettlementCine
                   </span>
                 )}
               </div>
-              {BALANCES.map((b) => (
-                <div key={b.name} className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{b.name}</span>
-                  <span
-                    className={`font-semibold tabular ${
-                      b.direction === "owed"
-                        ? "text-[hsl(152,60%,35%)]"
-                        : "text-[hsl(0,72%,50%)]"
-                    }`}
-                  >
-                    {b.amount > 0 ? "+" : ""}₹{Math.abs(b.amount).toLocaleString('en-IN')}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">Input Hash</span>
-                <span className="font-mono text-foreground">
-                  {phase !== "idle" ? INPUT_HASH : "—"}
-                </span>
+              <div className="space-y-2">
+                {balances.length === 0 && <div className="text-sm text-muted-foreground">No pending balances.</div>}
+                {balances.map((b: any) => {
+                  const amount = Number(b.balance);
+                  return (
+                    <div key={b.walletAddress} className="flex items-center justify-between text-sm py-1">
+                      <span className="font-medium">{getUserName(b.walletAddress)}</span>
+                      <span className={`tabular font-medium ${amount > 0 ? "text-[hsl(152,60%,45%)]" : amount < 0 ? "text-[hsl(0,72%,55%)]" : "text-muted-foreground"}`}>
+                        {amount > 0 ? "+" : amount < 0 ? "-" : ""}₹{Math.abs(amount).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="pt-4 mt-2 border-t border-[hsl(var(--muted)/0.5)] flex items-center justify-between text-xs text-muted-foreground">
+                <span>Input Hash</span>
+                <span className="font-mono">{(groupId || "0x00").slice(0, 10)}…</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Algorithm</span>
@@ -272,7 +284,7 @@ export function SettlementCinematic({ open, onClose, onSettled }: SettlementCine
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Group</span>
-               <span className="font-mono text-foreground">taj-dinner</span>
+               <span className="font-mono text-foreground">{groupId}</span>
               </div>
             </div>
 
@@ -393,10 +405,12 @@ export function SettlementCinematic({ open, onClose, onSettled }: SettlementCine
                       Proof Verified
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                  <div className="grid grid-cols-2 gap-y-3 text-xs mb-4 p-4 rounded-xl bg-card border border-border">
                     <span className="text-muted-foreground">Proof Hash</span>
-                    <div className="flex items-center gap-1">
-                      <span className="font-mono text-foreground truncate">{PROOF_HASH}</span>
+                    <div className="flex items-center justify-end gap-2 text-right">
+                      <span className="font-mono text-foreground">
+                        {(proofData?.imageId || "0x5c9f...a1b2").substring(0, 16)}…
+                      </span>
                       <button
                         onClick={copyProofHash}
                         className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors"
@@ -409,12 +423,12 @@ export function SettlementCinematic({ open, onClose, onSettled }: SettlementCine
                       </button>
                     </div>
                     <span className="text-muted-foreground">Algorithm</span>
-                    <span className="font-mono text-foreground">debt-simplify {ALGO_VERSION}</span>
+                    <span className="font-mono text-foreground text-right">debt-simplify {ALGO_VERSION}</span>
                     <span className="text-muted-foreground">Execution Time</span>
-                    <span className="font-mono text-foreground">{(elapsedMs / 1000).toFixed(1)}s</span>
+                    <span className="font-mono text-foreground text-right">{(elapsedMs / 1000).toFixed(1)}s</span>
                     <span className="text-muted-foreground">Settlements</span>
-                    <span className="font-mono text-foreground">{SETTLEMENTS.length} transfers</span>
-                  </div>
+                    <span className="font-mono text-foreground text-right">{settlements.length} transfers</span>
+                  </div>              
                   <p className="text-[11px] text-[hsl(152,60%,30%)] italic pt-1 border-t border-[hsl(152,60%,85%)]">
                     This settlement was proven, not assumed.
                   </p>
@@ -452,34 +466,34 @@ export function SettlementCinematic({ open, onClose, onSettled }: SettlementCine
           <div className="p-5 space-y-4">
             <p className="section-label">Output State</p>
 
-            <div className="space-y-2">
-              {SETTLEMENTS.map((s, i) => (
-                <div
-                  key={i}
-                  className={`rounded-lg border p-3 flex items-center gap-2.5 transition-all duration-500 ${
-                    isComplete
-                      ? "border-[hsl(152,60%,80%)] bg-[hsl(152,60%,97%)]"
-                      : "border-border"
-                  }`}
-                >
-                  <div className="w-7 h-7 rounded-full bg-[hsl(0,72%,92%)] flex items-center justify-center text-[10px] font-bold text-[hsl(0,72%,45%)]">
-                    {s.from[0]}
-                  </div>
-                  <ArrowRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                  <div className="w-7 h-7 rounded-full bg-[hsl(152,60%,92%)] flex items-center justify-center text-[10px] font-bold text-[hsl(152,60%,30%)]">
-                    {s.to[0]}
-                  </div>
-                  <span className="ml-auto text-sm font-semibold tabular">
-                    ₹{s.amount.toLocaleString('en-IN')}
-                  </span>
+            {!isComplete ? (
+              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground h-full flex-col gap-2">
+                <div className="w-8 h-8 rounded-full border border-dashed border-muted-foreground flex items-center justify-center animate-spin-slow">
+                  <Lock className="h-4 w-4" />
                 </div>
-              ))}
-            </div>
+                <p>Output concealed until proof completes</p>
+              </div>
+            ) : (
+              <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-700">
+                {settlements.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-card border border-border">
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-medium">{getUserName(s.from)}</span>
+                      <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-sm font-medium">{getUserName(s.to)}</span>
+                    </div>
+                    <span className="text-sm font-semibold text-foreground tabular">
+                      ₹{Number(s.amount).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="space-y-2 pt-2">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Transfers</span>
-                <span className="font-medium">{SETTLEMENTS.length}</span>
+                <span className="font-medium">{settlements.length}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Proof Status</span>
@@ -531,13 +545,7 @@ export function SettlementCinematic({ open, onClose, onSettled }: SettlementCine
               </div>
             )}
 
-            {!isComplete && !isProving && (
-              <div className="rounded-lg border border-dashed border-border p-4 text-center">
-                <p className="text-xs text-muted-foreground">
-                  Settlements will be verified once proof generation completes.
-                </p>
-              </div>
-            )}
+
           </div>
         </div>
       </div>

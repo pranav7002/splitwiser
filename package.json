@@ -1,0 +1,16 @@
+{
+  "name": "splitwiser-root",
+  "version": "1.0.0",
+  "description": "Root workspace to start all Splitwiser services concurrently",
+  "private": true,
+  "scripts": {
+    "start:backend": "cd backend && npm run dev",
+    "start:frontend": "cd frontend && npm run dev",
+    "start:aa": "cd AA-execution/agent && npm start",
+    "start:zkvm": "cd risc0-settlement && cargo run",
+    "dev": "concurrently -c \"cyan.bold,green.bold,blue.bold,magenta.bold\" -n \"BACKEND,FRONTEND,AA-NODE,ZK-PROVE\" \"npm run start:backend\" \"npm run start:frontend\" \"npm run start:aa\" \"npm run start:zkvm\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

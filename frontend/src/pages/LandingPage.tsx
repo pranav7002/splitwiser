@@ -1,9 +1,8 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, Lock, ScanLine, RefreshCw, ShieldCheck, Users, Zap } from "lucide-react";
+import { ArrowRight, Lock, RefreshCw, ShieldCheck, Users, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollReveal } from "@/components/ScrollReveal";
 
-const CHAINS = ["ETHEREUM", "POLYGON", "ARBITRUM", "BASE"];
 
 export default function LandingPage() {
   return (
@@ -144,18 +143,6 @@ export default function LandingPage() {
               </div>
             </ScrollReveal>
 
-            <ScrollReveal delay={80}>
-              <div className="rounded-2xl border border-border bg-card p-6">
-                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
-                  <ScanLine className="h-4.5 w-4.5 text-primary" />
-                </div>
-                <p className="section-label mb-1">Smart Scanning</p>
-                <h3 className="font-semibold mb-1">Snap & Split</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  Upload receipts and let AI extract line items automatically.
-                </p>
-              </div>
-            </ScrollReveal>
 
             <ScrollReveal delay={160}>
               <div className="rounded-2xl border border-border bg-card p-6">
@@ -173,9 +160,9 @@ export default function LandingPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
             {[
-              { icon: ShieldCheck, title: "Audited Contracts", desc: "Open source and verified on-chain" },
-              { icon: Users, title: "Group Dynamics", desc: "Invite friends via wallet or ENS" },
-              { icon: Zap, title: "Multi-Chain", desc: "Works on Ethereum, Polygon, Arbitrum" },
+              { icon: ShieldCheck, title: "ZK Verification", desc: "Settlements verified by zero-knowledge proofs" },
+              { icon: Users, title: "Group Splitting", desc: "Invite friends via wallet address" },
+              { icon: Zap, title: "Smart Accounts", desc: "Gasless settlements via account abstraction" },
             ].map((item, i) => (
               <ScrollReveal key={item.title} delay={i * 80}>
                 <div className="rounded-2xl border border-border bg-card p-5 flex items-start gap-4">
@@ -193,21 +180,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Chain ticker */}
-      <div className="border-t border-b border-border py-4 overflow-hidden">
-        <div className="flex animate-[scroll_20s_linear_infinite] whitespace-nowrap">
-          {[...Array(4)].map((_, rep) => (
-            <div key={rep} className="flex items-center gap-6 mr-6">
-              {CHAINS.map((chain) => (
-                <span key={`${rep}-${chain}`} className="text-sm text-muted-foreground font-medium flex items-center gap-2">
-                  {chain}
-                  <span className="text-border">◆</span>
-                </span>
-              ))}
-            </div>
-          ))}
-        </div>
-      </div>
+
 
       {/* Footer */}
       <footer className="py-8 px-6">
@@ -216,7 +189,7 @@ export default function LandingPage() {
             <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center">
               <span className="text-primary-foreground text-[10px] font-bold">S</span>
             </div>
-            <span>SplitWiser © 2025</span>
+            <span>SplitWiser © 2026</span>
           </div>
           <div className="flex items-center gap-5">
             <a href="#" className="hover:text-foreground transition-colors">GitHub</a>

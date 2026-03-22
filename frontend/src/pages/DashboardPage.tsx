@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Receipt, ChevronRight } from "lucide-react";
+import { Plus, Receipt, ChevronRight, LogOut, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollReveal } from "@/components/ScrollReveal";
 import { CreateGroupModal } from "@/components/CreateGroupModal";
+
+import { useSession } from "@/contexts/SessionContext";
+import { apiFetch } from "@/lib/api";
 
 const MEMBER_COLORS = [
   "bg-[hsl(239,84%,67%)] text-white",
@@ -13,54 +16,94 @@ const MEMBER_COLORS = [
   "bg-[hsl(280,60%,60%)] text-white",
 ];
 
-interface Group {
-  id: string;
-  name: string;
-  description: string;
-  members: { name: string; initial: string }[];
-  vaultBalance: string;
-  status: "active" | "ready" | "settled";
+function ConnectWalletScreen() {
+  const { connectWallet, isConnecting } = useSession();
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-sm text-center">
+        <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
+          <Wallet className="h-8 w-8 text-primary" />
+        </div>
+        <h1 className="text-2xl font-semibold mb-2">Connect Wallet</h1>
+        <p className="text-sm text-muted-foreground mb-8 leading-relaxed">
+          Connect your MetaMask wallet to start managing shared expenses with
+          cryptographic settlements.
+        </p>
+        <Button
+          onClick={connectWallet}
+          disabled={isConnecting}
+          size="lg"
+          className="w-full rounded-xl h-12 text-sm font-semibold"
+        >
+          {isConnecting ? (
+            <span className="flex items-center gap-2">
+              <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+              Connecting…
+            </span>
+          ) : (
+            <>
+              <Wallet className="h-4 w-4 mr-2" />
+              Connect MetaMask
+            </>
+          )}
+        </Button>
+        <p className="text-[11px] text-muted-foreground mt-4">
+          Make sure MetaMask is installed and unlocked.
+        </p>
+      </div>
+    </div>
+  );
 }
 
-const DEMO_GROUPS: Group[] = [
-  {
-     id: "1",
-    name: "Dinner at Taj Hotel",
-    description: "Group dinner — March 22",
-    members: [
-      { name: "Tanishka", initial: "T" },
-      { name: "Pranav", initial: "P" },
-      { name: "Mihir", initial: "M" },
-    ],
-    vaultBalance: "₹9,000",
-    status: "active",
-  },
-  
-];
-
-const statusDot: Record<string, string> = {
-  active: "bg-[hsl(152,60%,45%)]",
-  ready: "bg-[hsl(38,92%,50%)]",
-  settled: "bg-[hsl(240,4%,70%)]",
-};
-
 export default function DashboardPage() {
-  const [groups, setGroups] = useState<Group[]>(DEMO_GROUPS);
+  const { currentUser, disconnectWallet } = useSession();
+  const [groups, setGroups] = useState<any[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const handleCreate = (name: string, description: string) => {
-    setGroups((prev) => [
-      ...prev,
-      {
-        id: String(Date.now()),
-        name,
-        description,
-        members: [],
-        vaultBalance: "$0.00",
-        status: "active",
-      },
-    ]);
+  const fetchGroups = async () => {
+    if (!currentUser) return;
+    try {
+      const res = await apiFetch<any>('/groups');
+      const allGroups = res.data?.groups || [];
+      const myGroups = allGroups.filter((g: any) => 
+        (g.members || []).some((m: any) => m.userId === currentUser._id)
+      );
+      setGroups(myGroups);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchGroups();
+    }
+  }, [currentUser]);
+
+  const handleCreate = async (name: string, memberAddresses: string[]) => {
+    if (!currentUser) return;
+    try {
+      await apiFetch('/groups', {
+        method: 'POST',
+        body: JSON.stringify({
+          name,
+          memberAddresses,
+          createdBy: currentUser.walletAddress
+        })
+      });
+      fetchGroups();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  if (!currentUser) {
+    return <ConnectWalletScreen />;
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -73,12 +116,20 @@ export default function DashboardPage() {
             </div>
             <span className="font-semibold text-sm">SplitWiser</span>
           </Link>
-          <div className="flex items-center gap-2 px-3.5 py-2 rounded-full border border-border bg-card text-xs font-medium">
-            <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center text-[10px] font-bold text-primary-foreground">
-              A
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 px-3.5 py-2 rounded-full border border-border bg-card text-xs font-medium">
+              <div className="w-2 h-2 rounded-full bg-[hsl(152,60%,45%)]" />
+              <span className="text-foreground font-mono">
+                {currentUser.walletAddress.slice(0,6)}…{currentUser.walletAddress.slice(-4)}
+              </span>
             </div>
-            <span className="text-muted-foreground">1.24 ETH</span>
-            <span className="text-foreground">0x1a2b…3c4d</span>
+            <button
+              onClick={disconnectWallet}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              title="Disconnect wallet"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </header>
@@ -93,7 +144,13 @@ export default function DashboardPage() {
           </div>
         </ScrollReveal>
 
-        {groups.length === 0 ? (
+        {loading ? (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[0,1,2].map(i => (
+              <div key={i} className="h-[220px] rounded-2xl border border-border bg-muted/30 animate-pulse" />
+            ))}
+          </div>
+        ) : groups.length === 0 ? (
           <EmptyState onCreate={() => setShowCreate(true)} />
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -118,25 +175,22 @@ export default function DashboardPage() {
             </ScrollReveal>
 
             {groups.map((group, i) => (
-              <ScrollReveal key={group.id} delay={(i + 1) * 80}>
-                <Link to={`/group/${group.id}`} className="block h-full">
+              <ScrollReveal key={group.groupId || i} delay={(i + 1) * 80}>
+                <Link to={`/group/${group.groupId}`} className="block h-full">
                   <div className="relative h-full rounded-2xl border border-border bg-card p-6 hover:border-primary/20 hover:shadow-md transition-all duration-300 group active:scale-[0.98]">
-                    {/* Status dot */}
-                    <div className={`absolute top-5 right-5 w-2.5 h-2.5 rounded-full ${statusDot[group.status]}`} />
-
                     <h3 className="font-semibold text-lg mb-1">{group.name}</h3>
                     <p className="text-sm text-muted-foreground mb-5">
-                      {group.description}
+                      {group.memberCount} members · {group.expenseCount || 0} expenses
                     </p>
 
                     {/* Member avatars */}
                     <div className="flex items-center -space-x-2 mb-6">
-                      {group.members.map((m, mi) => (
+                      {group.members.slice(0,3).map((m: any, mi: number) => (
                         <div
-                          key={m.name}
+                          key={m.userId || mi}
                           className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ring-2 ring-card ${MEMBER_COLORS[mi % MEMBER_COLORS.length]}`}
                         >
-                          {m.initial}
+                          {m.walletAddress?.slice(2, 4)?.toUpperCase() || "??"}
                         </div>
                       ))}
                       {group.members.length > 3 && (
@@ -153,7 +207,7 @@ export default function DashboardPage() {
                           Vault Balance
                         </div>
                         <div className="text-2xl font-semibold tabular">
-                          {group.vaultBalance}
+                          ₹{(group.totalAmount || 0).toLocaleString('en-IN')}
                         </div>
                       </div>
                       <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all mb-1" />

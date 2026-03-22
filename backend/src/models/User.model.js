@@ -2,15 +2,6 @@ import mongoose from "mongoose";
 
 const userSchema = new mongoose.Schema(
   {
-    name: {
-      type: String,
-      required: true,
-    },
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-    },
     walletAddress: {
       type: String,
       required: true,
@@ -19,7 +10,7 @@ const userSchema = new mongoose.Schema(
     smartAccountAddress: {
       type: String,
       unique: true,
-      sparse: true, // sparse allows nulls but enforces uniqueness where it exists
+      sparse: true,
     },
   },
   { timestamps: true }

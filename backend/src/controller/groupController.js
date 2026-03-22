@@ -14,49 +14,58 @@ import {
 
 export const createGroup = async (req, res) => {
   try {
-    const { name, memberIds, createdBy } = req.body ?? {};
+    const { name, memberAddresses, createdBy } = req.body ?? {};
 
     if (typeof name !== "string" || !name.trim()) {
       return sendError(res, "Invalid group name");
-    }
-
-    if (!Array.isArray(memberIds) || memberIds.length === 0) {
-      return sendError(res, "memberIds must be a non-empty array");
     }
 
     if (typeof createdBy !== "string" || !createdBy.trim()) {
       return sendError(res, "createdBy is required");
     }
 
-    const normalizedCreator = normalizeId(createdBy);
-    let normalizedMembers = uniqueStrings(memberIds);
+    const ETH_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
-    if (!normalizedMembers.includes(normalizedCreator)) {
-      normalizedMembers = [...normalizedMembers, normalizedCreator];
+    // Normalize all wallet addresses (creator + invited members)
+    const rawAddresses = Array.isArray(memberAddresses) ? memberAddresses : [];
+    const allAddresses = [...new Set(
+      [createdBy, ...rawAddresses].map((a) => a.trim().toLowerCase()).filter((a) => ETH_REGEX.test(a))
+    )];
+
+    if (allAddresses.length === 0) {
+      return sendError(res, "At least one valid wallet address is required");
     }
 
-    for (const id of normalizedMembers) {
-      if (!isValidObjectId(id)) {
-        return sendError(res, `Invalid userId: ${id}`);
+    // Find existing users by wallet address
+    const existingUsers = await User.find(
+      { walletAddress: { $in: allAddresses } },
+      { _id: 1, walletAddress: 1 }
+    ).lean();
+
+    const addrToId = new Map(
+      existingUsers.map((u) => [u.walletAddress.toLowerCase(), String(u._id)])
+    );
+
+    // Auto-register any unknown addresses
+    const unknownAddresses = allAddresses.filter((a) => !addrToId.has(a));
+    if (unknownAddresses.length > 0) {
+      const newUsers = await User.insertMany(
+        unknownAddresses.map((addr) => ({
+          walletAddress: addr,
+        }))
+      );
+      for (const u of newUsers) {
+        addrToId.set(u.walletAddress.toLowerCase(), String(u._id));
       }
     }
 
-    const existingUsers = await User.find(
-      { _id: { $in: normalizedMembers } },
-      { _id: 1 }
-    ).lean();
-
-    const foundIds = new Set(existingUsers.map((u) => String(u._id)));
-    const missingIds = normalizedMembers.filter((id) => !foundIds.has(id));
-
-    if (missingIds.length > 0) {
-      return sendError(res, `Some users do not exist: ${missingIds.join(", ")}`);
-    }
+    const memberUserIds = allAddresses.map((a) => addrToId.get(a)).filter(Boolean);
+    const creatorId = addrToId.get(createdBy.trim().toLowerCase());
 
     const group = await Group.create({
       name: name.trim(),
-      members: normalizedMembers,
-      createdBy: normalizedCreator,
+      members: memberUserIds,
+      createdBy: creatorId,
     });
 
     return sendSuccess(res, group, 201);
@@ -86,7 +95,7 @@ export const getGroupById = async (req, res) => {
     const users = memberIds.length
       ? await User.find(
         { _id: { $in: memberIds } },
-        { _id: 1, name: 1, email: 1, walletAddress: 1, createdAt: 1 }
+        { _id: 1, walletAddress: 1, createdAt: 1 }
       ).lean()
       : [];
 
@@ -115,8 +124,6 @@ export const getGroupById = async (req, res) => {
         createdByUser: createdByUser
           ? {
             userId: String(createdByUser._id),
-            name: createdByUser.name || "",
-            email: createdByUser.email || "",
             walletAddress: createdByUser.walletAddress || "",
           }
           : null,
@@ -130,8 +137,6 @@ export const getGroupById = async (req, res) => {
         const user = userMap.get(memberId);
         return {
           userId: memberId,
-          name: user?.name || "",
-          email: user?.email || "",
           walletAddress: user?.walletAddress || "",
           joined: Boolean(user),
         };
@@ -170,7 +175,7 @@ export const listGroups = async (req, res) => {
     const users = allMemberIds.length
       ? await User.find(
         { _id: { $in: allMemberIds } },
-        { _id: 1, name: 1, email: 1, walletAddress: 1 }
+        { _id: 1, walletAddress: 1 }
       ).lean()
       : [];
 
@@ -220,8 +225,6 @@ export const listGroups = async (req, res) => {
           const user = userMap.get(String(memberId));
           return {
             userId: String(memberId),
-            name: user?.name || "",
-            email: user?.email || "",
             walletAddress: user?.walletAddress || "",
           };
         }),

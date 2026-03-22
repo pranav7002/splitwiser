@@ -1,41 +1,80 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
+import { toast } from "sonner";
+
+import { useSession } from "@/contexts/SessionContext";
 
 interface CreateGroupModalProps {
   open: boolean;
   onClose: () => void;
-  onCreate: (name: string, description: string) => void;
+  onCreate: (name: string, memberAddresses: string[]) => void;
 }
 
-export function CreateGroupModal({ open, onClose, onCreate }: CreateGroupModalProps) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [members, setMembers] = useState<string[]>([]);
-  const [memberInput, setMemberInput] = useState("");
+const ETH_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
-  const addMember = () => {
-    const trimmed = memberInput.trim();
-    if (trimmed && !members.includes(trimmed)) {
-      setMembers((prev) => [...prev, trimmed]);
-      setMemberInput("");
+export function CreateGroupModal({ open, onClose, onCreate }: CreateGroupModalProps) {
+  const { currentUser } = useSession();
+  const [name, setName] = useState("");
+  const [addressInput, setAddressInput] = useState("");
+  const [invitedAddresses, setInvitedAddresses] = useState<string[]>([]);
+
+  const resetForm = useCallback(() => {
+    setName("");
+    setAddressInput("");
+    setInvitedAddresses([]);
+  }, []);
+
+  const addAddress = () => {
+    const addr = addressInput.trim().toLowerCase();
+
+    if (!ETH_REGEX.test(addr)) {
+      toast.error("Invalid Ethereum address. Must be 0x followed by 40 hex characters.");
+      return;
+    }
+
+    if (addr === currentUser?.walletAddress?.toLowerCase()) {
+      toast.error("You're already included in the group.");
+      return;
+    }
+
+    if (invitedAddresses.includes(addr)) {
+      toast.error("This address is already added.");
+      return;
+    }
+
+    setInvitedAddresses((prev) => [...prev, addr]);
+    setAddressInput("");
+  };
+
+  const removeAddress = (addr: string) => {
+    setInvitedAddresses((prev) => prev.filter((a) => a !== addr));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addAddress();
     }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    onCreate(name.trim(), description.trim());
-    setName("");
-    setDescription("");
-    setMembers([]);
+    onCreate(name.trim(), invitedAddresses);
+    resetForm();
+    onClose();
+  };
+
+  const handleClose = () => {
+    resetForm();
     onClose();
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-lg">Create Group</DialogTitle>
@@ -50,49 +89,57 @@ export function CreateGroupModal({ open, onClose, onCreate }: CreateGroupModalPr
               autoFocus
             />
           </div>
+
           <div>
-            <label className="section-label mb-1.5 block">Description (optional)</label>
-            <Input
-              placeholder="What's this group for?"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="section-label mb-1.5 block">Members</label>
+            <label className="section-label mb-1.5 block">Invite Members</label>
             <div className="flex gap-2">
               <Input
-                placeholder="Paste wallet address"
-                value={memberInput}
-                onChange={(e) => setMemberInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addMember())}
+                placeholder="0x... wallet address"
+                value={addressInput}
+                onChange={(e) => setAddressInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="font-mono text-sm"
               />
-              <Button type="button" variant="outline" size="sm" onClick={addMember}>
-                Add
+              <Button type="button" size="sm" variant="outline" onClick={addAddress} className="shrink-0 px-3">
+                <Plus className="h-4 w-4" />
               </Button>
             </div>
-            {members.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-3">
-                {members.map((m) => (
-                  <span
-                    key={m}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted text-xs font-medium"
+
+            {/* Invited list */}
+            {invitedAddresses.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                {invitedAddresses.map((addr) => (
+                  <div
+                    key={addr}
+                    className="flex items-center justify-between px-3 py-2 rounded-lg bg-muted/50 border border-border"
                   >
-                    {m.length > 12 ? `${m.slice(0, 6)}…${m.slice(-4)}` : m}
+                    <span className="text-xs font-mono text-foreground truncate">
+                      {addr.slice(0, 6)}…{addr.slice(-4)}
+                    </span>
                     <button
                       type="button"
-                      onClick={() => setMembers((prev) => prev.filter((x) => x !== m))}
-                      className="hover:text-foreground text-muted-foreground transition-colors"
+                      onClick={() => removeAddress(addr)}
+                      className="ml-2 text-muted-foreground hover:text-destructive transition-colors"
                     >
-                      <X className="h-3 w-3" />
+                      <X className="h-3.5 w-3.5" />
                     </button>
-                  </span>
+                  </div>
                 ))}
               </div>
             )}
+
+            {/* You indicator */}
+            <div className="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20">
+              <div className="w-2 h-2 rounded-full bg-primary" />
+              <span className="text-xs font-mono text-primary">
+                {currentUser?.walletAddress?.slice(0, 6)}…{currentUser?.walletAddress?.slice(-4)}
+              </span>
+              <span className="text-[10px] text-primary/60 ml-auto">You (auto-included)</span>
+            </div>
           </div>
+
           <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={onClose}>
+            <Button type="button" variant="ghost" onClick={handleClose}>
               Cancel
             </Button>
             <Button type="submit" disabled={!name.trim()}>

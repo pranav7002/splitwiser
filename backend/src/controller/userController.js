@@ -5,23 +5,13 @@ const ETH_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
 export const createUser = async (req, res) => {
   try {
-    const { name, email, walletAddress, smartAccountAddress } = req.body ?? {};
-
-    if (typeof name !== "string" || !name.trim()) {
-      return sendError(res, "name is required");
-    }
-
-    if (typeof email !== "string" || !email.trim()) {
-      return sendError(res, "email is required");
-    }
+    const { walletAddress, smartAccountAddress } = req.body ?? {};
 
     if (typeof walletAddress !== "string" || !ETH_ADDRESS_REGEX.test(walletAddress.trim())) {
       return sendError(res, "walletAddress must be a valid Ethereum address (0x + 40 hex chars)");
     }
 
     const payload = {
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
       walletAddress: walletAddress.trim().toLowerCase(),
     };
 
@@ -47,7 +37,7 @@ export const createUser = async (req, res) => {
 export const listUsers = async (req, res) => {
   try {
     const users = await User.find({})
-      .select("_id name email walletAddress createdAt updatedAt")
+      .select("_id walletAddress smartAccountAddress createdAt updatedAt")
       .sort({ createdAt: -1 })
       .lean();
 

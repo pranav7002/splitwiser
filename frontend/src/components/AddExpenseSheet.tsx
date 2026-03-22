@@ -1,28 +1,79 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useSession } from "@/contexts/SessionContext";
+import { apiFetch } from "@/lib/api";
+import { toast } from "sonner";
 
 interface AddExpenseSheetProps {
   open: boolean;
   onClose: () => void;
+  groupId: string;
+  members: any[];
+  onAdded: () => Promise<void>;
 }
 
-const MEMBERS = ["Tanishka", "Pranav", "Mihir"];
-
-export function AddExpenseSheet({ open, onClose }: AddExpenseSheetProps) {
+export function AddExpenseSheet({ open, onClose, groupId, members, onAdded }: AddExpenseSheetProps) {
+  const { currentUser } = useSession();
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [payer, setPayer] = useState("You");
-  const [splitMode, setSplitMode] = useState<"equal" | "custom">("equal");
+  const [payer, setPayer] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const perPerson = amount ? (parseFloat(amount) / MEMBERS.length).toFixed(2) : "0.00";
+  // Set default payer when sheet opens or currentUser changes
+  useEffect(() => {
+    if (open && currentUser && !payer) {
+      setPayer(currentUser._id);
+    }
+  }, [open, currentUser]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Reset form when sheet closes
+  useEffect(() => {
+    if (!open) {
+      setAmount("");
+      setDescription("");
+      setPayer("");
+    }
+  }, [open]);
+
+  const perPerson = amount && members?.length ? (parseFloat(amount) / members.length).toFixed(2) : "0.00";
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onClose();
-    setAmount("");
-    setDescription("");
+    if (!amount || !groupId || !payer) return;
+    
+    setLoading(true);
+    try {
+      const totalAmt = parseFloat(amount);
+      const splitAmt = totalAmt / members.length;
+      const splits = members.map(m => ({ user: m.userId, amount: splitAmt }));
+
+      await apiFetch('/expenses', {
+        method: 'POST',
+        body: JSON.stringify({
+          groupId,
+          paidBy: payer,
+          amount: totalAmt,
+          description,
+          splits
+        })
+      });
+      toast.success("Expense added successfully");
+      await onAdded();
+      onClose();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || "Failed to add expense");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getDisplayName = (m: any) => {
+    if (m.userId === currentUser?._id) return "You";
+    if (!m.walletAddress) return "Unknown";
+    return `${m.walletAddress.slice(0, 6)}…${m.walletAddress.slice(-4)}`;
   };
 
   return (
@@ -58,79 +109,49 @@ export function AddExpenseSheet({ open, onClose }: AddExpenseSheetProps) {
           </div>
 
           <div>
-  <label className="section-label mb-1.5 block">Receipt (optional)</label>
-  <div
-    className="border-2 border-dashed border-border rounded-xl p-6 text-center cursor-pointer hover:border-primary/40 hover:bg-muted/30 transition-all duration-200"
-    onClick={() => document.getElementById('receipt-upload')?.click()}
-  >
-    <div className="text-2xl mb-2">📎</div>
-    <p className="text-sm font-medium text-foreground">Drop receipt here</p>
-    <p className="text-xs text-muted-foreground mt-1">or click to browse</p>
-    <input
-      id="receipt-upload"
-      type="file"
-      accept="image/*,.pdf"
-      className="hidden"
-    />
-  </div>
-</div>
-
-
-          <div>
             <label className="section-label mb-1.5 block">Paid by</label>
-            <div className="flex flex-wrap gap-1.5">
-              {MEMBERS.map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => setPayer(m)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 active:scale-[0.96] ${
-                    payer === m
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
-                >
-                  {m}
-                </button>
-              ))}
+            <div className="flex flex-wrap gap-2">
+              {members?.map((m) => {
+                const isSelected = payer === m.userId;
+                return (
+                  <button
+                    key={m.userId}
+                    type="button"
+                    onClick={() => setPayer(m.userId)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-card text-muted-foreground border-border hover:border-primary/40"
+                    }`}
+                  >
+                    {getDisplayName(m)}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
           <div>
             <label className="section-label mb-1.5 block">Split</label>
-            <div className="flex gap-1.5 mb-3">
-              {(["equal", "custom"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setSplitMode(mode)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 active:scale-[0.96] capitalize ${
-                    splitMode === mode
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
-            {splitMode === "equal" && amount && (
+            <p className="text-xs text-muted-foreground mb-3">Split equally among all members</p>
+            {amount && (
               <div className="rounded-lg border border-border bg-muted/30 p-3">
                 <div className="text-xs text-muted-foreground mb-2">Each person pays</div>
-               <div className="text-lg font-semibold tabular">₹{perPerson}</div>
+                <div className="text-lg font-semibold tabular">₹{perPerson}</div>
                 <div className="text-[11px] text-muted-foreground mt-1">
-                  Split equally among {MEMBERS.length} members
+                  Split equally among {members?.length || 0} members
                 </div>
               </div>
             )}
           </div>
 
-          <div className="flex gap-2 pt-2">
-            <Button type="button" variant="ghost" onClick={onClose} className="flex-1">
+          {/* Footer Actions */}
+          <div className="pt-6 border-t border-border flex gap-3">
+            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" className="flex-1" disabled={!amount || !description}>
-              Add Expense
+            <Button type="submit" className="flex-1" disabled={loading || !amount}>
+              {loading ? "Adding..." : "Add Expense"}
             </Button>
           </div>
         </form>
