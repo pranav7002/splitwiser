@@ -1,7 +1,9 @@
+use axum::{extract::Json, http::StatusCode, routing::{get, post}, Router};
 use methods::{SETTLEMENT_ELF, SETTLEMENT_ID};
 use risc0_zkvm::{default_prover, ExecutorEnv};
 use serde::{Deserialize, Serialize};
-use std::io::{self, Read};
+use std::net::SocketAddr;
+use tower_http::cors::CorsLayer;
 
 // ── Input types (mirroring the guest) ───────────────────────────────────
 
@@ -31,7 +33,7 @@ struct Transfer {
     amount: u64,
 }
 
-// ── Final JSON written to stdout for the Node backend ───────────────────
+// ── Final JSON response ─────────────────────────────────────────────────
 
 #[derive(Serialize)]
 struct HostOutput {
@@ -41,23 +43,15 @@ struct HostOutput {
     image_id: String,
 }
 
-fn main() {
-    // Quiet tracing unless RUST_LOG is set
-    tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::filter::EnvFilter::from_default_env())
-        .init();
+#[derive(Serialize)]
+struct ErrorResponse {
+    error: String,
+}
 
-    // ── 1. Read JSON input from stdin ───────────────────────────────────
-    let mut input_json = String::new();
-    io::stdin()
-        .read_to_string(&mut input_json)
-        .expect("Failed to read stdin");
+// ── Prove handler ───────────────────────────────────────────────────────
 
-    let host_input: HostInput =
-        serde_json::from_str(&input_json).expect("Failed to parse input JSON");
-
-    // ── 2. Build the guest input struct (matching guest's SettlementInput) ──
-    // We re-serialize the participants so the guest receives a clean struct.
+async fn prove(Json(host_input): Json<HostInput>) -> Result<Json<HostOutput>, (StatusCode, Json<ErrorResponse>)> {
+    // Build the guest input
     #[derive(Serialize)]
     struct GuestInput {
         participants: Vec<GuestParticipant>,
@@ -79,31 +73,33 @@ fn main() {
             .collect(),
     };
 
-    // ── 3. Create executor environment and pass input ───────────────────
+    // Create executor environment and pass input
     let env = ExecutorEnv::builder()
         .write(&guest_input)
-        .expect("Failed to write input to executor env")
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("Failed to write input: {e}") })))?
         .build()
-        .expect("Failed to build executor env");
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("Failed to build env: {e}") })))?;
 
-    // ── 4. Prove ────────────────────────────────────────────────────────
+    // Prove
     let prover = default_prover();
     let prove_info = prover
         .prove(env, SETTLEMENT_ELF)
-        .expect("Proving failed");
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("Proving failed: {e}") })))?;
 
     let receipt = prove_info.receipt;
 
-    // ── 5. Verify (sanity check) ────────────────────────────────────────
+    // Verify (sanity check)
     receipt
         .verify(SETTLEMENT_ID)
-        .expect("Receipt verification failed");
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("Verification failed: {e}") })))?;
 
-    // ── 6. Decode the journal (guest's committed output) ────────────────
-    let output: SettlementOutput = receipt.journal.decode().expect("Failed to decode journal");
+    // Decode journal
+    let output: SettlementOutput = receipt.journal.decode()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("Journal decode failed: {e}") })))?;
 
-    // ── 7. Serialize the receipt bytes as a hex proof string ─────────────
-    let receipt_bytes = bincode::serialize(&receipt).expect("Failed to serialize receipt");
+    // Serialize receipt as hex proof
+    let receipt_bytes = bincode::serialize(&receipt)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("Serialize failed: {e}") })))?;
     let proof_hex = format!("0x{}", hex::encode(&receipt_bytes));
 
     // Image ID as hex
@@ -116,12 +112,41 @@ fn main() {
             .collect::<String>()
     );
 
-    // ── 8. Print JSON to stdout ─────────────────────────────────────────
-    let host_output = HostOutput {
+    Ok(Json(HostOutput {
         settlements: output.settlements,
         proof: proof_hex,
         image_id: image_id_hex,
-    };
+    }))
+}
 
-    println!("{}", serde_json::to_string(&host_output).unwrap());
+// ── Health check ────────────────────────────────────────────────────────
+
+async fn health() -> &'static str {
+    "ok"
+}
+
+// ── Main ────────────────────────────────────────────────────────────────
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::filter::EnvFilter::from_default_env())
+        .init();
+
+    let app = Router::new()
+        .route("/prove", post(prove))
+        .route("/health", get(health))
+        .layer(CorsLayer::permissive());
+
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(3002);
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
+    println!("zkVM proving service running on http://0.0.0.0:{port}");
+    println!("POST http://0.0.0.0:{port}/prove");
+
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
