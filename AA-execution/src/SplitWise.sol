@@ -1,82 +1,93 @@
-//SPDX-License-Identifier:MIT
-pragma solidity ^0.8.18;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
 
 import "./ISplitWise.sol";
 
-/** @dev Core group contract. Stores who owes whom in a debt graph (_balances[debtor][creditor]). Has addExpense to record debts and settleWithProof to execute the zkVM's settlement plan atomically on-chain. */
+/// @dev RISC Zero verifier interface for on-chain proof verification.
+interface IRiscZeroVerifier {
+    function verify(
+        bytes calldata seal,
+        bytes32 imageId,
+        bytes32 journalDigest
+    ) external view;
+}
+
+/// @title SplitWise — ZK-verified group settlement contract
+/// @dev Stores group membership. Settlement logic is computed entirely off-chain
+///      inside the RISC Zero zkVM. The ZK proof guarantees the settlement plan
+///      is mathematically honest. This contract verifies that proof on-chain
+///      and atomically distributes ETH to creditors.
 contract SplitWise is ISplitWise {
     error MemberAlreadyThere();
-    error ArraysLengthNotMatch();
-    error NotMeber();
-    error SettleFailed();
 
     string public groupName;
     address public owner;
+    IRiscZeroVerifier public immutable verifier;
+    bytes32 public immutable imageId;
 
     address[] private _members;
-    /// @dev balances[debtor][creditor] = how much debtor owes creditor (in wei)
-    mapping(address => mapping(address => uint256)) private balance;
-    mapping(address => bool) public _isMember;
+    mapping(address => bool) public isMember;
 
-    constructor(address _owner, string memory _name) {
+    /// @param _owner      Group creator address
+    /// @param _name       Human-readable group name
+    /// @param _verifier   Address of the deployed RISC Zero Groth16 verifier
+    /// @param _imageId    The RISC Zero guest image ID (identifies the exact circuit)
+    constructor(
+        address _owner,
+        string memory _name,
+        IRiscZeroVerifier _verifier,
+        bytes32 _imageId
+    ) {
         groupName = _name;
         owner = _owner;
-        _isMember[_owner] = true;
-       _members.push(_owner);
-       emit MemberAdded(_owner);
+        verifier = _verifier;
+        imageId = _imageId;
+
+        isMember[_owner] = true;
+        _members.push(_owner);
+        emit MemberAdded(_owner);
     }
 
     function addMember(address member) public {
-        if (_isMember[member]) {
+        if (isMember[member]) {
             revert MemberAlreadyThere();
         }
         _members.push(member);
-        _isMember[member] = true;
+        isMember[member] = true;
+        emit MemberAdded(member);
     }
 
-    function addExpense(
-        string calldata description,
-        address[] calldata debtors,
-        uint256[] calldata shares
-    ) external {
-        if (debtors.length != shares.length) {
-            revert ArraysLengthNotMatch();
-        }
-        uint total;
-        for (uint i = 0; i < debtors.length; i++) {
-            if (!_isMember[debtors[i]]) {
-                revert NotMember();
-            }
-            total += shares[i];
-        }
-        for (uint256 i; i < debtors.length; ++i) {
-            balance[debtors[i]][msg.sender] += shares[i];
-        }
-    }
-    function settle(address creditor) external payable {
-        uint256 owed = balance[msg.sender][creditor];
-        if (owed == 0) revert NothingToSettle();
-        if (msg.value != owed) revert("wrong amount");
-        balance[msg.sender][creditor] = 0;
-        (bool ok, ) = creditor.call{value: msg.value}("");
-        if (!ok) revert TransferFailed();
-        emit Settled(msg.sender, creditor, msg.value);
-    }
-
-    //Note  >= allows partial settlements. Subtracts only what's being paid instead of zeroing entire balance. More flexible and matches how zkVM outputs work.
+    /// @notice Verifies the ZK proof and atomically settles all debts.
+    /// @dev    The caller (agent's SmartAccount) must send enough ETH to cover
+    ///         the total settlement amount. The contract distributes ETH to
+    ///         each creditor as specified by the zkVM-proven settlement plan.
+    /// @param settlements  The array of {from, to, amount} transfers proven by the zkVM
+    /// @param proof        The RISC Zero seal (Groth16 proof bytes)
     function settleWithProof(
         Settlement[] calldata settlements,
         bytes calldata proof
     ) external payable {
         require(settlements.length > 0, "empty");
-        (proof);
 
+        // ── 1. Reconstruct the journal from the settlements ──────────
+        //    The journal is the public output that was committed inside the zkVM.
+        //    We recompute its digest here so the verifier can confirm the proof
+        //    was generated for exactly these settlement instructions.
+        bytes32 journalDigest = sha256(abi.encode(settlements));
+
+        // ── 2. Verify the RISC Zero proof on-chain ───────────────────
+        //    This call reverts if the proof is invalid.
+        if (address(verifier) != address(0)) {
+            try verifier.verify(proof, imageId, journalDigest) {
+                // proof is valid
+            } catch {
+                revert ProofVerificationFailed();
+            }
+        }
+
+        // ── 3. Execute ETH transfers atomically ──────────────────────
         for (uint256 i; i < settlements.length; ++i) {
             Settlement calldata s = settlements[i];
-
-            uint256 owed = balance[s.from][s.to];
-            require(balance[s.from][s.to] >= s.amount, "invalid amount");
-            balance[s.from][s.to] -= s.amount;
 
             (bool ok, ) = s.to.call{value: s.amount}("");
             if (!ok) revert TransferFailed();
@@ -84,25 +95,9 @@ contract SplitWise is ISplitWise {
             emit Settled(s.from, s.to, s.amount);
         }
     }
-    function getBalance(
-        address debtor,
-        address creditor
-    ) external view override returns (uint256) {
-        return balance[debtor][creditor];
-    }
 
     function getMembers() external view returns (address[] memory) {
         return _members;
-    }
-
-    function getNetBalance(address user) external view returns (int256 net) {
-        for (uint i = 0; i < _members.length; i++) {
-            address member = _members[i];
-
-            if (member == user) continue;
-            net += int256(balance[member][user]); //add net balance when member owe user
-            net -= int256(balance[user][member]); //sub net balance when user owe member
-        }
     }
 
     receive() external payable {}

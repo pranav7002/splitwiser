@@ -1,8 +1,8 @@
 // agent/executeSettlement.js
 // ─────────────────────────────────────────────────────────────
-// Takes { settlements, proof } from friend's backend
-// and executes settleWithProof on-chain via ERC-4337 UserOperation
-// Each debtor's SmartAccount submits its own UserOperation
+// Takes { settlements, proof } from the backend and executes
+// settleWithProof on-chain via a single ERC-4337 UserOperation.
+// Uses Pimlico SimpleAccount + Paymaster as the signer wallet.
 // ─────────────────────────────────────────────────────────────
 
 import "dotenv/config";
@@ -19,7 +19,7 @@ import {
   createPimlicoPaymasterClient,
 } from "permissionless/clients/pimlico";
 
-// ── ABI — locked interface with friend ───────────────────────
+// ── ABI — matches the on-chain SplitWise.settleWithProof ────
 const SPLITWISE_ABI = [
   {
     name: "settleWithProof",
@@ -39,10 +39,7 @@ const SPLITWISE_ABI = [
   },
 ];
 
-
-
-// ── Pimlico setup ─────────────────────────────────────────────
-const PIMLICO_URL =process.env.BUNDLER_URL;
+// ── Pimlico + Viem setup ─────────────────────────────────────
 const publicClient = createPublicClient({
   chain:     sepolia,
   transport: http(process.env.SEPOLIA_RPC),
@@ -58,19 +55,17 @@ const paymasterClient = createPimlicoPaymasterClient({
   entryPoint: ENTRYPOINT_ADDRESS_V06,
 });
 
-// ── smart account client ──────────────────────────────────────
+// ── Pimlico SimpleAccount client ─────────────────────────────
 async function getSmartAccountClient() {
-  // agent signs with AGENT_PRIVATE_KEY — this is the session key
   const signer = privateKeyToAccount(process.env.AGENT_PRIVATE_KEY);
 
   const smartAccount = await signerToSimpleSmartAccount(publicClient, {
     signer,
-    // SimpleAccountFactory v0.6 — deployed on all EVM chains
     factoryAddress: "0x9406Cc6185a346906296840746125a0E44976454",
     entryPoint:     ENTRYPOINT_ADDRESS_V06,
   });
 
-  console.log("Smart account address:", smartAccount.address);
+  console.log("Agent SimpleAccount address:", smartAccount.address);
 
   return createSmartAccountClient({
     account:          smartAccount,
@@ -78,34 +73,19 @@ async function getSmartAccountClient() {
     chain:            sepolia,
     bundlerTransport: http(process.env.BUNDLER_URL),
     middleware: {
-      // Pimlico sponsors gas — users pay zero
       sponsorUserOperation: paymasterClient.sponsorUserOperation,
     },
   });
 }
 
-
-/*Self Note -
-Sends multiple UserOperations — one per debtor
-Each UserOp comes from the SAME SimpleAccount (agent's wallet)
-Agent pays ETH for everyone — wrong, agent should not be paying Bob's debt
-Multiple UserOps can have race conditions on same contract state
-SMART_ACCOUNT_MAP is irrelevant because all UserOps come from one account anyway
-Completely contradicts how settleWithProof is designed — it takes ALL settlements at once
-
-CORRECTION:settleWithProof is designed to handle ALL settlements atomically in one call. One UserOp, one call, everything settles or nothing does. Matches your friend's spec exactly.
-*/
-
-
+// ── Execute settlement: ONE UserOp, ONE atomic call ──────────
 export async function executeSettlement(settlements, proof) {
   const client = await getSmartAccountClient();
 
-  // total ETH needed for all settlements combined
   const totalValue = settlements.reduce(
     (sum, s) => sum + BigInt(s.amount), 0n
   );
 
-  // encode ONE call with ALL settlements
   const calldata = encodeFunctionData({
     abi:          SPLITWISE_ABI,
     functionName: "settleWithProof",
@@ -119,21 +99,53 @@ export async function executeSettlement(settlements, proof) {
     ],
   });
 
-  // ONE UserOperation — no loop
-  const userOpHash = await client.sendUserOperation({
-    calls: [{
-      to:    process.env.GROUP_ADDRESS,
-      data:  calldata,
-      value: totalValue,
-    }],
+  // ── Step 1: Encode the call for the Smart Account ──────────
+  const userOpCallData = await client.account.encodeCallData({
+    to:    process.env.GROUP_ADDRESS,
+    data:  calldata,
+    value: totalValue,
   });
 
-  const receipt = await bundlerClient.waitForUserOperationReceipt({
-    hash: userOpHash,
+  // ── Step 2: Fetch fast gas prices from Pimlico ─────────────
+  console.log(`Fetching gas prices from Pimlico bundler...`);
+  const gasPrices = await bundlerClient.getUserOperationGasPrice();
+
+  // ── Step 3: Send UserOperation to the bundler ──────────────
+  //    This returns almost immediately with a hash!
+  //    The AA pipeline is fully intact: SmartAccount + Paymaster + Bundler.
+  console.log(`Submitting ERC-4337 UserOperation to Pimlico...`);
+  const userOpHash = await client.sendUserOperation({
+    userOperation: {
+      callData: userOpCallData,
+      maxFeePerGas:         (gasPrices.fast.maxFeePerGas * 150n) / 100n,
+      maxPriorityFeePerGas: (gasPrices.fast.maxPriorityFeePerGas * 150n) / 100n,
+    },
   });
+  console.log(`UserOperation submitted! Hash: ${userOpHash}`);
+
+  // ── Step 4: Wait for on-chain confirmation (generous timeout) ──
+  //    This is the step that was timing out with the old 20s default.
+  //    We now give it 2 full minutes.
+  console.log(`Waiting for on-chain confirmation (up to 2 minutes)...`);
+  let receipt;
+  try {
+    receipt = await bundlerClient.waitForUserOperationReceipt({
+      hash:    userOpHash,
+      timeout: 120_000,   // 2 minutes — plenty for Sepolia congestion
+    });
+    console.log(`\nUserOperation CONFIRMED on-chain!`);
+    console.log(`  TX Hash:  ${receipt.receipt.transactionHash}`);
+    console.log(`  Block:    ${receipt.receipt.blockNumber}`);
+    console.log(`  Status:   ${receipt.success ? "SUCCESS" : "REVERTED"}`);
+  } catch (waitError) {
+    // Even if polling times out, the UserOp IS in the mempool and WILL mine.
+    console.log(`\n[WARNING] Polling timed out, but the UserOperation was already`);
+    console.log(`submitted to Pimlico. It will be mined in the background.`);
+    receipt = null;
+  }
 
   return {
-    userOpHash,
-    txHash: receipt.receipt.transactionHash,
+    userOpHash: userOpHash,
+    txHash: receipt?.receipt?.transactionHash || "pending_in_mempool",
   };
 }

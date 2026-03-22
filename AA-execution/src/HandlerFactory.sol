@@ -1,26 +1,34 @@
-//SPDX-License-Identifier:MIT
-pragma solidity ^0.8.18;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.23;
 
 import "./SplitWise.sol";
 
-/**
- @title HandlerFactory
- @author Mihir
-  This Contract allows to generate small group contract and keep tract of their address by predicting it using CREATE2 code
-  */
+/// @title HandlerFactory — Deterministic group contract deployer
+/// @dev Uses CREATE2 to deploy SplitWise group contracts with predictable addresses.
 contract HandlerFactory {
-    
-    mapping(bytes32 groupId=> address groupAddr) private groups;
+    IRiscZeroVerifier public immutable verifier;
+    bytes32 public immutable imageId;
+
+    mapping(bytes32 groupId => address groupAddr) private groups;
 
     event GroupCreated(bytes32 indexed groupId, address indexed groupAddr, address indexed creator);
+
+    /// @param _verifier  The RISC Zero verifier contract address (shared by all groups)
+    /// @param _imageId   The RISC Zero guest image ID (shared by all groups)
+    constructor(IRiscZeroVerifier _verifier, bytes32 _imageId) {
+        verifier = _verifier;
+        imageId = _imageId;
+    }
 
     function createGroup(
         string calldata name
     ) public returns (address groupAddr, bytes32 groupId) {
         groupId = _salt(msg.sender, name);
-        groupAddr = address(new SplitWise{salt: groupId}(msg.sender, name));
-        groups[groupId]=groupAddr;
-        emit GroupCreated(groupId, groupAddr,msg.sender);
+        groupAddr = address(
+            new SplitWise{salt: groupId}(msg.sender, name, verifier, imageId)
+        );
+        groups[groupId] = groupAddr;
+        emit GroupCreated(groupId, groupAddr, msg.sender);
     }
 
     function predictAddress(
@@ -31,7 +39,7 @@ contract HandlerFactory {
         bytes32 initCodeHash = keccak256(
             abi.encodePacked(
                 type(SplitWise).creationCode,
-                abi.encode(creator, name)
+                abi.encode(creator, name, verifier, imageId)
             )
         );
         return
@@ -58,8 +66,7 @@ contract HandlerFactory {
         return keccak256(abi.encodePacked(creator, name));
     }
 
-    //////////////getters//////////////
-    function getGroups(bytes32 groupId) external view returns(address){
+    function getGroups(bytes32 groupId) external view returns (address) {
         return groups[groupId];
     }
 }

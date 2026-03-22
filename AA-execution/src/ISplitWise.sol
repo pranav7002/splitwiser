@@ -11,27 +11,16 @@ interface ISplitWise {
 
     // ── events ────────────────────────────────────────────────────
     event MemberAdded(address indexed member);
-    event ExpenseAdded(address indexed paidBy, uint256 amount, string description, uint256 expenseId);
     event Settled(address indexed debtor, address indexed creditor, uint256 amount);
 
     // ── errors ────────────────────────────────────────────────────
     error NotMember();
     error AlreadyMember();
-    error InvalidSplit();
-    error ZeroAmount();
-    error NothingToSettle();
     error TransferFailed();
+    error ProofVerificationFailed();
 
     // ── core functions ────────────────────────────────────────────
     function addMember(address member) external;
-
-    function addExpense(
-        string calldata description,
-        address[] calldata debtors,
-        uint256[] calldata shares
-    ) external;
-
-    function settle(address creditor) external payable;
 
     /// @notice AA + zkVM settlement flow.
     ///         Called by smart account via UserOperation.
@@ -42,8 +31,5 @@ interface ISplitWise {
     ) external payable;
 
     // ── views ─────────────────────────────────────────────────────
-    function getBalance(address debtor, address creditor) external view returns (uint256);
-    function getNetBalance(address user) external view returns (int256);
     function getMembers() external view returns (address[] memory);
-    
 }

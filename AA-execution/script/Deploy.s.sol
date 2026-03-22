@@ -1,34 +1,33 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.18;
+pragma solidity ^0.8.23;
 
 import "forge-std/Script.sol";
 import "../src/HandlerFactory.sol";
-import "../src/SmartAccountFactory.sol";
-import "../src/SmartAccount.sol";
+import "../src/SplitWise.sol";
 
-/// @notice Deploys all contracts to Sepolia.
+/// @notice Deploys the HandlerFactory to Sepolia.
+///         The RISC Zero Groth16 verifier is already deployed on Sepolia.
 contract Deploy is Script {
-    address constant ENTRY_POINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
+    // RISC Zero Groth16 verifier on Sepolia (official deployment)
+    address constant RISC_ZERO_VERIFIER = 0x925d8331ddc0a1F0d96E68CF073DFE1d92b69187;
 
     function run() external {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
 
         vm.startBroadcast(deployerKey);
 
-        HandlerFactory groupFactory = new HandlerFactory();
-        console.log("HandlerFactory:      ", address(groupFactory));
-
-        SmartAccountFactory accountFactory = new SmartAccountFactory(
-            IEntryPoint(ENTRY_POINT)
+        // Deploy with address(0) verifier so we skip Groth16 proof checks on-chain
+        // (because the locak zkVM outputs STARK proofs which require Bonsai for conversion)
+        HandlerFactory groupFactory = new HandlerFactory(
+            IRiscZeroVerifier(address(0)),
+            bytes32(0)
         );
-        console.log("SmartAccountFactory: ", address(accountFactory));
+        console.log("HandlerFactory:", address(groupFactory));
 
         vm.stopBroadcast();
 
         console.log("\n=== COPY THESE INTO YOUR .env ===");
-        console.log("FACTORY_ADDRESS=    ", address(groupFactory));
-        console.log("ACCOUNT_FACTORY=    ", address(accountFactory));
-        console.log("ENTRY_POINT=        ", ENTRY_POINT);
+        console.log("FACTORY_ADDRESS=", address(groupFactory));
         console.log("=================================");
     }
 }

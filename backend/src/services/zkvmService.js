@@ -1,105 +1,57 @@
-import { spawn } from "child_process";
-
-const readStream = (stream) =>
-  new Promise((resolve) => {
-    let data = "";
-    stream.on("data", (chunk) => {
-      data += chunk.toString();
-    });
-    stream.on("end", () => resolve(data));
-  });
-
 export const runZkVm = async (input) => {
-  const command = process.env.ZKVM_COMMAND;
+  const serviceUrl = process.env.ZKVM_SERVICE_URL;
 
-  if (!command) {
-    throw new Error("ZKVM_COMMAND is not configured");
+  if (!serviceUrl) {
+    throw new Error("ZKVM_SERVICE_URL is not configured");
   }
 
   const timeoutMs = Number(process.env.ZKVM_TIMEOUT_MS || 300000);
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, [], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: process.env,
-      shell: false,
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(`${serviceUrl}/prove`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+      signal: controller.signal,
     });
 
-    let timedOut = false;
+    const text = await response.text();
 
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
-    }, timeoutMs);
+    if (!response.ok) {
+      throw new Error(`zkVM service returned ${response.status}: ${text}`);
+    }
 
-    const stdoutPromise = readStream(child.stdout);
-    const stderrPromise = readStream(child.stderr);
-
-    child.on("error", async (err) => {
-      clearTimeout(timeout);
-      const stderr = await stderrPromise;
-      reject(
-        new Error(
-          `Failed to start zkVM process: ${err.message}${stderr ? ` | stderr: ${stderr}` : ""
-          }`
-        )
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      throw new Error(
+        `zkVM output is not valid JSON: ${err.message}. Raw: ${text.slice(0, 2000)}`
       );
-    });
+    }
 
-    child.on("close", async (code) => {
-      clearTimeout(timeout);
-      const stdout = await stdoutPromise;
-      const stderr = await stderrPromise;
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("zkVM output must be a JSON object");
+    }
 
-      if (timedOut) {
-        reject(new Error(`zkVM execution timed out after ${timeoutMs}ms`));
-        return;
-      }
+    if (!Array.isArray(parsed.settlements)) {
+      throw new Error("zkVM output must include a settlements array");
+    }
 
-      if (code !== 0) {
-        reject(
-          new Error(
-            `zkVM process exited with code ${code}${stderr ? ` | stderr: ${stderr}` : ""
-            }`
-          )
-        );
-        return;
-      }
+    if (typeof parsed.proof !== "string" || !parsed.proof.startsWith("0x")) {
+      throw new Error("zkVM output must include a hex proof string");
+    }
 
-      let parsed;
-      try {
-        parsed = JSON.parse(stdout.trim());
-      } catch (err) {
-        reject(
-          new Error(
-            `zkVM output is not valid JSON: ${err.message}. Raw output: ${stdout.slice(
-              0,
-              2000
-            )}`
-          )
-        );
-        return;
-      }
-
-      if (!parsed || typeof parsed !== "object") {
-        reject(new Error("zkVM output must be a JSON object"));
-        return;
-      }
-
-      if (!Array.isArray(parsed.settlements)) {
-        reject(new Error("zkVM output must include a settlements array"));
-        return;
-      }
-
-      if (typeof parsed.proof !== "string" || !parsed.proof.startsWith("0x")) {
-        reject(new Error("zkVM output must include a hex proof string"));
-        return;
-      }
-
-      resolve(parsed);
-    });
-
-    child.stdin.write(JSON.stringify(input));
-    child.stdin.end();
-  });
+    return parsed;
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error(`zkVM request timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 };

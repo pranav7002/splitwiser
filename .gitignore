@@ -1,2 +1,20 @@
+# Environments
+.env
+
+# Dependencies
+node_modules/
+
+# Solidity & Foundry
+broadcast/
+cache/
+out/
+
+# Rust & Risc0
+target/
+
+# Secret / Temp scripts
+getagent*.mjs
+get_addresses.mjs
+
+# OS files
 .DS_Store
-**/.DS_Store

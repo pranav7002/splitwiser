@@ -1,47 +1,22 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.18;
+pragma solidity ^0.8.23;
 
 import "forge-std/Script.sol";
 import "../src/HandlerFactory.sol";
-import "../src/SmartAccountFactory.sol";
-import "../src/SmartAccount.sol";
 import "../src/SplitWise.sol";
 
+/// @notice Creates a demo group and adds members.
+///         SmartAccounts are Pimlico SimpleAccounts created off-chain.
 contract SetupDemo is Script {
-    address aliceAccount;
-    address bobAccount;
-    address carolAccount;
     address groupAddr;
 
     function run() external {
-        _deployAccounts();
         _setupGroup();
-        _fundAccounts();
+        _fundGroup();
 
         console.log("\n=== COPY THESE INTO YOUR .env ===");
-        console.log("ALICE_ACCOUNT=", aliceAccount);
-        console.log("BOB_ACCOUNT=  ", bobAccount);
-        console.log("CAROL_ACCOUNT=", carolAccount);
         console.log("GROUP_ADDRESS=", groupAddr);
         console.log("=================================");
-    }
-
-    function _deployAccounts() internal {
-        SmartAccountFactory accountFactory = SmartAccountFactory(
-            vm.envAddress("ACCOUNT_FACTORY")
-        );
-
-        vm.broadcast(vm.envUint("ALICE_KEY"));
-        aliceAccount = accountFactory.createSmartAccount();
-        console.log("Alice SmartAccount:", aliceAccount);
-
-        vm.broadcast(vm.envUint("BOB_KEY"));
-        bobAccount = accountFactory.createSmartAccount();
-        console.log("Bob SmartAccount:  ", bobAccount);
-
-        vm.broadcast(vm.envUint("CAROL_KEY"));
-        carolAccount = accountFactory.createSmartAccount();
-        console.log("Carol SmartAccount:", carolAccount);
     }
 
     function _setupGroup() internal {
@@ -49,29 +24,31 @@ contract SetupDemo is Script {
             vm.envAddress("FACTORY_ADDRESS")
         );
 
+        // Alice creates the group
         vm.broadcast(vm.envUint("ALICE_KEY"));
         (groupAddr,) = groupFactory.createGroup("Goa Trip");
-        console.log("Group contract:    ", groupAddr);
+        console.log("Group contract:", groupAddr);
 
         SplitWise group = SplitWise(payable(groupAddr));
 
+        // Add Bob and Carol's Pimlico SimpleAccount addresses as members
+        address bobAccount = vm.envAddress("BOB_ADDRESS");
+        address carolAccount = vm.envAddress("CAROL_ADDRESS");
+
         vm.broadcast(vm.envUint("ALICE_KEY"));
         group.addMember(bobAccount);
-        console.log("Bob added as member");
+        console.log("Bob added as member:", bobAccount);
 
         vm.broadcast(vm.envUint("ALICE_KEY"));
         group.addMember(carolAccount);
-        console.log("Carol added as member");
+        console.log("Carol added as member:", carolAccount);
     }
 
-    function _fundAccounts() internal {
-        // ← no paymaster whitelisting needed anymore
+    function _fundGroup() internal {
+        // Fund the group contract so it can distribute ETH during settlement
         vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
-        payable(aliceAccount).transfer(0.05 ether);
-        payable(bobAccount).transfer(0.05 ether);
-        payable(carolAccount).transfer(0.05 ether);
+        payable(groupAddr).transfer(0.1 ether);
         vm.stopBroadcast();
-
-        console.log("Funded each SmartAccount with 0.05 ETH");
+        console.log("Funded group contract with 0.1 ETH");
     }
 }

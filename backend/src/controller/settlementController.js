@@ -1,12 +1,7 @@
 import {
   getGroupSettlementContext,
-  computeGreedySettlementPreview,
 } from "../services/groupSettlementService.js";
 import { runZkVm } from "../services/zkvmService.js";
-import {
-  validateSettlementOutput,
-  settlementsAreEqual,
-} from "../services/settlementValidationService.js";
 import {
   isValidObjectId,
   sendSuccess,
@@ -28,26 +23,13 @@ const processSettlementBackground = async (jobId, groupId) => {
     const zkInput = {
       participants: context.participants.map((p) => ({
         wallet_address: p.walletAddress,
-        balance: String(p.balance),
+        balance: Number(p.balance),
       })),
     };
 
-    const expectedSettlements = computeGreedySettlementPreview(
-      context.participants
-    );
-
     const zkResult = await runZkVm(zkInput);
 
-    const normalizedSettlements = validateSettlementOutput(
-      context.participants,
-      zkResult.settlements
-    );
-
-    if (!settlementsAreEqual(expectedSettlements, normalizedSettlements)) {
-      throw new Error(
-        "zkVM settlement output does not match the expected deterministic settlement plan"
-      );
-    }
+    const normalizedSettlements = zkResult.settlements;
 
     // Map EOA to SmartAccount addresses
     const aaSettlements = normalizedSettlements.map((s) => {

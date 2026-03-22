@@ -3,7 +3,6 @@ import User from "../models/User.model.js";
 import Expense from "../models/Expense.model.js";
 import {
   getGroupSettlementContext,
-  computeGreedySettlementPreview,
 } from "../services/groupSettlementService.js";
 import {
   isValidObjectId,
@@ -245,53 +244,27 @@ export const getGroupBalances = async (req, res) => {
     const context = await getGroupSettlementContext(groupId);
 
     const totalBalance = context.participants.reduce(
-      (sum, item) => sum + item.balance,
-      0
+      (sum, item) => sum + BigInt(item.balance),
+      0n
     );
 
     const totalPositive = context.participants
-      .filter((b) => b.balance > 0)
-      .reduce((sum, b) => sum + b.balance, 0);
+      .filter((b) => BigInt(b.balance) > 0n)
+      .reduce((sum, b) => sum + BigInt(b.balance), 0n);
 
     const totalNegative = context.participants
-      .filter((b) => b.balance < 0)
-      .reduce((sum, b) => sum + Math.abs(b.balance), 0);
+      .filter((b) => BigInt(b.balance) < 0n)
+      .reduce((sum, b) => sum + BigInt(b.balance) * -1n, 0n);
 
     return sendSuccess(res, {
       group: context.group,
       balances: context.participants,
       totals: {
-        totalBalance,
-        totalPositive,
-        totalNegative,
+        totalBalance: String(totalBalance),
+        totalPositive: String(totalPositive),
+        totalNegative: String(totalNegative),
       },
       expenseCount: context.expenseCount,
-    });
-  } catch (err) {
-    const status = err.statusCode || 500;
-    return sendError(res, err.message, status);
-  }
-};
-
-export const getGroupSettlementPreview = async (req, res) => {
-  try {
-    const { groupId } = req.params;
-    if (!isValidObjectId(groupId)) {
-      return sendError(res, "Invalid groupId");
-    }
-
-    const context = await getGroupSettlementContext(groupId);
-    const transfers = computeGreedySettlementPreview(context.participants);
-
-    return sendSuccess(res, {
-      group: context.group,
-      balances: context.participants,
-      settlements: transfers,
-      metrics: {
-        nonZeroBalances: context.participants.filter((b) => b.balance !== 0)
-          .length,
-        settlementCount: transfers.length,
-      },
     });
   } catch (err) {
     const status = err.statusCode || 500;
