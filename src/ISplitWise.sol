@@ -39,7 +39,7 @@ interface ISplitWise {
     function settleWithProof(
         Settlement[] calldata settlements,
         bytes calldata proof
-    ) external;
+    ) external payable;
 
     // ── views ─────────────────────────────────────────────────────
     function getBalance(address debtor, address creditor) external view returns (uint256);

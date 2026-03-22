@@ -17,7 +17,7 @@ contract SplitWise is ISplitWise {
     address[] private _members;
     /// @dev balances[debtor][creditor] = how much debtor owes creditor (in wei)
     mapping(address => mapping(address => uint256)) private balance;
-    mapping(address => bool) private _isMember;
+    mapping(address => bool) public _isMember;
 
     constructor(address _owner, string memory _name) {
         groupName = _name;
@@ -29,6 +29,7 @@ contract SplitWise is ISplitWise {
             revert MemberAlreadyThere();
         }
         _members.push(member);
+        _isMember[member]=true;
     }
 
     function addExpense(
@@ -60,7 +61,7 @@ contract SplitWise is ISplitWise {
     function settleWithProof(
         Settlement[] calldata settlements,
         bytes calldata proof
-    ) external {
+    ) external payable{
         require(settlements.length > 0, "empty");
         (proof); 
 
@@ -90,5 +91,15 @@ contract SplitWise is ISplitWise {
         return _members;
     }
 
-    function getNetBalance(address user) external view returns (int256) {}
+    function getNetBalance(address user) external view returns (int256 net) {
+        for(uint i=0;i<_members.length;i++){
+            address member=_members[i];
+
+        if(member==user) continue;    
+        net+=int256(balance[member][user]); //add net balance when member owe user
+        net-=~int256(balance[user][member]);//sub net balance when user owe member
+        }
+    }
+
+    receive() external payable{}
 }
