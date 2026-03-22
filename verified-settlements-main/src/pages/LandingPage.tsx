@@ -1,0 +1,230 @@
+import { Link } from "react-router-dom";
+import { ArrowRight, Lock, ScanLine, RefreshCw, ShieldCheck, Users, Zap } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ScrollReveal } from "@/components/ScrollReveal";
+
+const CHAINS = ["ETHEREUM", "POLYGON", "ARBITRUM", "BASE"];
+
+export default function LandingPage() {
+  return (
+    <div className="min-h-screen bg-background overflow-hidden">
+      {/* Nav */}
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-sm border-b border-border">
+        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+              <span className="text-primary-foreground text-sm font-bold">S</span>
+            </div>
+            <span className="font-semibold text-foreground text-sm">SplitWiser</span>
+          </div>
+          <div className="flex items-center gap-6">
+            <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:block">About</a>
+            <Link to="/dashboard">
+              <Button size="sm" className="rounded-full px-5">
+                Launch App
+                <ArrowRight className="ml-1 h-3.5 w-3.5" />
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </nav>
+
+      {/* Hero */}
+      <section className="pt-36 pb-20 px-6">
+        <div className="max-w-3xl mx-auto text-center">
+          <h1
+            className="text-4xl sm:text-5xl md:text-6xl font-bold leading-[1.08] mb-6 opacity-0 animate-fade-up"
+            style={{ animationDelay: "0ms", lineHeight: "1.1" }}
+          >
+            Finance for Friends,
+            <br />
+            <span className="relative inline-block">
+              Settled by Code
+              <span className="absolute bottom-0.5 left-0 right-0 h-[3px] bg-foreground rounded-full" />
+            </span>
+          </h1>
+          <p
+            className="text-muted-foreground text-lg md:text-xl max-w-xl mx-auto mb-10 leading-relaxed opacity-0 animate-fade-up"
+            style={{ animationDelay: "120ms" }}
+          >
+            SplitWiser is the trustless way to manage shared expenses. Lock funds, scan bills, and settle instantly using smart contracts.
+          </p>
+          <div
+            className="flex items-center justify-center gap-4 opacity-0 animate-fade-up"
+            style={{ animationDelay: "200ms" }}
+          >
+            <Link to="/dashboard">
+              <Button variant="default" size="lg" className="rounded-full px-8 h-12 text-sm font-semibold group">
+                Launch Dashboard
+                <ArrowRight className="ml-1.5 h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Product Preview */}
+      <ScrollReveal className="px-6 pb-20">
+        <div className="max-w-4xl mx-auto">
+          <div className="rounded-2xl border border-border bg-card shadow-sm overflow-hidden">
+            {/* Window chrome */}
+            <div className="flex items-center gap-1.5 px-4 py-3 border-b border-border">
+              <div className="w-3 h-3 rounded-full bg-[hsl(0,72%,60%)]" />
+              <div className="w-3 h-3 rounded-full bg-[hsl(38,92%,60%)]" />
+              <div className="w-3 h-3 rounded-full bg-[hsl(152,60%,50%)]" />
+            </div>
+            <div className="p-6 grid md:grid-cols-[180px_1fr] gap-6">
+              {/* Mini sidebar */}
+              <div className="hidden md:block space-y-4">
+                <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Groups</p>
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                  <div className="text-sm font-semibold">Dinner at Taj Hotel</div>
+                  <div className="text-[11px] text-muted-foreground">3 members</div>
+                </div>
+                <div className="rounded-lg border border-border p-3">
+                  <div className="text-sm font-medium">Office Lunch</div>
+                  <div className="text-[11px] text-muted-foreground">4 members</div>
+                </div>
+              </div>
+              {/* Mini main */}
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <div className="text-base font-semibold">Dinner at Taj Hotel</div>
+                    <div className="text-xs text-muted-foreground">Active vault</div>
+                  </div>
+                  <span className="text-xs font-medium text-[hsl(152,60%,35%)] bg-[hsl(152,60%,94%)] px-2 py-0.5 rounded-full">Active</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="rounded-lg border border-border p-3">
+                    <div className="text-[11px] text-muted-foreground mb-0.5">Vault Balance</div>
+                    <div className="text-lg font-semibold tabular">₹9,000</div>
+                  </div>
+                  <div className="rounded-lg border border-border p-3">
+                    <div className="text-[11px] text-muted-foreground mb-0.5">Your Position</div>
+                    <div className="text-lg font-semibold tabular text-[hsl(152,60%,35%)]">+₹1,400</div>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground mb-2">Recent Activity</p>
+                <div className="rounded-lg border border-border p-3 flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-[hsl(0,72%,95%)] flex items-center justify-center">
+                    <div className="w-3 h-3 rounded-sm bg-[hsl(0,72%,60%)]" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">Dinner — Taj Hotel</div>
+                    <div className="text-[11px] text-muted-foreground">Paid by Tanishka</div>
+                  </div>
+                  <span className="text-sm font-semibold tabular">₹6,000</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </ScrollReveal>
+
+      {/* Features section */}
+      <section id="features" className="px-6 pb-20">
+        <div className="max-w-5xl mx-auto">
+          <ScrollReveal className="text-center mb-14">
+            <h2 className="text-2xl font-semibold mb-2">Why SplitWiser?</h2>
+            <p className="text-sm text-muted-foreground">Built for transparency. Designed for trust.</p>
+          </ScrollReveal>
+
+          <div className="grid md:grid-cols-3 gap-4">
+            <ScrollReveal className="md:col-span-2 md:row-span-2">
+              <div className="h-full rounded-2xl border border-border bg-card p-8 flex flex-col justify-end">
+                <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-6">
+                  <Lock className="h-7 w-7 text-muted-foreground" />
+                </div>
+                <p className="section-label mb-2">The Vault</p>
+                <h3 className="text-xl font-semibold mb-2">No IOUs. Funds are locked in escrow.</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed max-w-md">
+                  Before the trip even starts, everyone's contribution is safely locked in a smart contract. No more chasing payments.
+                </p>
+              </div>
+            </ScrollReveal>
+
+            <ScrollReveal delay={80}>
+              <div className="rounded-2xl border border-border bg-card p-6">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
+                  <ScanLine className="h-4.5 w-4.5 text-primary" />
+                </div>
+                <p className="section-label mb-1">Smart Scanning</p>
+                <h3 className="font-semibold mb-1">Snap & Split</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Upload receipts and let AI extract line items automatically.
+                </p>
+              </div>
+            </ScrollReveal>
+
+            <ScrollReveal delay={160}>
+              <div className="rounded-2xl border border-border bg-card p-6">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
+                  <RefreshCw className="h-4.5 w-4.5 text-primary" />
+                </div>
+                <p className="section-label mb-1">Instant Refund</p>
+                <h3 className="font-semibold mb-1">One-Click Settle</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  When the trip ends, settle all debts with a single transaction.
+                </p>
+              </div>
+            </ScrollReveal>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
+            {[
+              { icon: ShieldCheck, title: "Audited Contracts", desc: "Open source and verified on-chain" },
+              { icon: Users, title: "Group Dynamics", desc: "Invite friends via wallet or ENS" },
+              { icon: Zap, title: "Multi-Chain", desc: "Works on Ethereum, Polygon, Arbitrum" },
+            ].map((item, i) => (
+              <ScrollReveal key={item.title} delay={i * 80}>
+                <div className="rounded-2xl border border-border bg-card p-5 flex items-start gap-4">
+                  <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
+                    <item.icon className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold mb-0.5">{item.title}</h4>
+                    <p className="text-xs text-muted-foreground">{item.desc}</p>
+                  </div>
+                </div>
+              </ScrollReveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Chain ticker */}
+      <div className="border-t border-b border-border py-4 overflow-hidden">
+        <div className="flex animate-[scroll_20s_linear_infinite] whitespace-nowrap">
+          {[...Array(4)].map((_, rep) => (
+            <div key={rep} className="flex items-center gap-6 mr-6">
+              {CHAINS.map((chain) => (
+                <span key={`${rep}-${chain}`} className="text-sm text-muted-foreground font-medium flex items-center gap-2">
+                  {chain}
+                  <span className="text-border">◆</span>
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <footer className="py-8 px-6">
+        <div className="max-w-5xl mx-auto flex items-center justify-between text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md bg-primary flex items-center justify-center">
+              <span className="text-primary-foreground text-[10px] font-bold">S</span>
+            </div>
+            <span>SplitWiser © 2025</span>
+          </div>
+          <div className="flex items-center gap-5">
+            <a href="#" className="hover:text-foreground transition-colors">GitHub</a>
+            <a href="#" className="hover:text-foreground transition-colors">Docs</a>
+            <a href="#" className="hover:text-foreground transition-colors">About</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
