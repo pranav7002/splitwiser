@@ -1,6 +1,7 @@
 import Group from "../models/Group.model.js";
 import User from "../models/User.model.js";
 import Expense from "../models/Expense.model.js";
+import Job from "../models/Job.model.js";
 import {
   getGroupSettlementContext,
 } from "../services/groupSettlementService.js";
@@ -11,6 +12,28 @@ import {
   sendSuccess,
   sendError,
 } from "../utils/responseHelpers.js";
+import { createPublicClient, http } from "viem";
+import { sepolia } from "viem/chains";
+
+const publicClient = createPublicClient({
+  chain: sepolia,
+  transport: http("https://ethereum-sepolia-rpc.publicnode.com"),
+});
+
+const FACTORY_ADDRESS = "0x2212e8eb5f6825e227fabe361623f0cb507119ec";
+
+const FACTORY_ABI = [
+  {
+    "inputs": [
+      { "internalType": "address", "name": "creator", "type": "address" },
+      { "internalType": "string", "name": "name", "type": "string" }
+    ],
+    "name": "predictAddress",
+    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "stateMutability": "view",
+    "type": "function"
+  }
+];
 
 export const createGroup = async (req, res) => {
   try {
@@ -62,10 +85,18 @@ export const createGroup = async (req, res) => {
     const memberUserIds = allAddresses.map((a) => addrToId.get(a)).filter(Boolean);
     const creatorId = addrToId.get(createdBy.trim().toLowerCase());
 
+    const onChainAddress = await publicClient.readContract({
+      address: FACTORY_ADDRESS,
+      abi: FACTORY_ABI,
+      functionName: "predictAddress",
+      args: [createdBy.trim().toLowerCase(), name.trim()],
+    });
+
     const group = await Group.create({
       name: name.trim(),
       members: memberUserIds,
       createdBy: creatorId,
+      onChainAddress,
     });
 
     return sendSuccess(res, group, 201);
@@ -259,6 +290,17 @@ export const getGroupBalances = async (req, res) => {
       .filter((b) => BigInt(b.balance) < 0n)
       .reduce((sum, b) => sum + BigInt(b.balance) * -1n, 0n);
 
+    const activeJob = await Job.findOne({
+      group: groupId,
+      status: { $in: ["pending", "processing"] },
+    }).lean();
+
+    const lastSettlement = await Job.findOne({
+      group: groupId,
+      status: "success",
+      "proofDetails.proof": { $exists: true }
+    }).sort({ updatedAt: -1 }).lean();
+
     return sendSuccess(res, {
       group: context.group,
       balances: context.participants,
@@ -268,6 +310,12 @@ export const getGroupBalances = async (req, res) => {
         totalNegative: String(totalNegative),
       },
       expenseCount: context.expenseCount,
+      activeJob: activeJob ? { jobId: String(activeJob._id), status: activeJob.status } : null,
+      lastSettlement: lastSettlement ? {
+        jobId: String(lastSettlement._id),
+        completedAt: lastSettlement.updatedAt,
+        proofDetails: lastSettlement.proofDetails
+      } : null,
     });
   } catch (err) {
     const status = err.statusCode || 500;

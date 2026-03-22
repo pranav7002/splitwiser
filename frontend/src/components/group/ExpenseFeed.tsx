@@ -1,12 +1,29 @@
 import { ScrollReveal } from "@/components/ScrollReveal";
-import { UtensilsCrossed, Car, Building2, ShoppingBag } from "lucide-react";
+import { UtensilsCrossed, Car, Building2, ShoppingBag, Plane, Coffee, Receipt, Ghost } from "lucide-react";
 
-const CATEGORY_ICONS = [
-  { icon: UtensilsCrossed, bg: "bg-[hsl(0,72%,95%)]", color: "text-[hsl(0,72%,50%)]" },
-  { icon: Car, bg: "bg-[hsl(239,84%,95%)]", color: "text-[hsl(239,84%,55%)]" },
-  { icon: Building2, bg: "bg-[hsl(152,60%,94%)]", color: "text-[hsl(152,60%,35%)]" },
-  { icon: ShoppingBag, bg: "bg-[hsl(38,92%,94%)]", color: "text-[hsl(38,72%,45%)]" },
-];
+// Helper to determine icon based on description
+const getCategoryIcon = (desc: string) => {
+  const d = desc.toLowerCase();
+  if (d.match(/food|dinner|lunch|breakfast|eat|restaurant|pizza|burger/)) {
+    return { icon: UtensilsCrossed, bg: "bg-[hsl(0,72%,95%)]", color: "text-[hsl(0,72%,50%)]" };
+  }
+  if (d.match(/uber|lyft|taxi|cab|car|drive|gas|toll|parking/)) {
+    return { icon: Car, bg: "bg-[hsl(239,84%,95%)]", color: "text-[hsl(239,84%,55%)]" };
+  }
+  if (d.match(/hotel|airbnb|rent|house|apartment|stay/)) {
+    return { icon: Building2, bg: "bg-[hsl(152,60%,94%)]", color: "text-[hsl(152,60%,35%)]" };
+  }
+  if (d.match(/flight|plane|air|ticket|trip/)) {
+    return { icon: Plane, bg: "bg-[hsl(190,90%,92%)]", color: "text-[hsl(190,90%,40%)]" };
+  }
+  if (d.match(/coffee|tea|cafe|starbucks/)) {
+    return { icon: Coffee, bg: "bg-[hsl(30,80%,92%)]", color: "text-[hsl(30,80%,40%)]" };
+  }
+  if (d.match(/shop|buy|store|groceries|market/)) {
+    return { icon: ShoppingBag, bg: "bg-[hsl(38,92%,94%)]", color: "text-[hsl(38,72%,45%)]" };
+  }
+  return { icon: Receipt, bg: "bg-muted", color: "text-muted-foreground" };
+};
 
 export function ExpenseFeed({ expenses, members }: { expenses?: any[], members?: any[] }) {
   if (!expenses || !members) return null;
@@ -25,10 +42,24 @@ export function ExpenseFeed({ expenses, members }: { expenses?: any[], members?:
           <span className="text-xs text-muted-foreground">{expenses.length} expenses</span>
         </div>
       </ScrollReveal>
-      <div className="space-y-2">
-        {expenses.length === 0 && <p className="text-sm text-muted-foreground text-center py-6">No expenses yet.</p>}
+      
+      <div className="space-y-3 mt-4">
+        {expenses.length === 0 && (
+          <ScrollReveal delay={100}>
+            <div className="rounded-2xl border border-dashed border-border p-10 flex flex-col items-center justify-center text-center bg-card/50">
+              <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mb-4 text-muted-foreground/30">
+                <Ghost className="h-8 w-8" />
+              </div>
+              <h3 className="text-sm font-medium mb-1">It's quiet in here</h3>
+              <p className="text-xs text-muted-foreground max-w-[200px]">
+                No expenses have been added to this vault yet. 
+              </p>
+            </div>
+          </ScrollReveal>
+        )}
+
         {expenses.map((expense, i) => {
-          const cat = CATEGORY_ICONS[i % CATEGORY_ICONS.length];
+          const cat = getCategoryIcon(expense.description || "");
           const Icon = cat.icon;
           return (
             <ScrollReveal key={expense.expenseId} delay={i * 60}>

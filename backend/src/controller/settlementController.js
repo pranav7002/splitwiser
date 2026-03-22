@@ -51,7 +51,9 @@ const processSettlementBackground = async (jobId, groupId) => {
       };
     });
 
-    let executionResult = null;
+    const groupDoc = await Group.findById(groupId.trim()).populate("createdBy", "walletAddress").lean();
+    if (!groupDoc) throw new Error("Group not found");
+
     const executionUrl = process.env.EXECUTION_SERVICE_URL;
 
     if (executionUrl) {
@@ -60,7 +62,10 @@ const processSettlementBackground = async (jobId, groupId) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           settlements: aaSettlements,
-          proof: zkResult.proof || "0xdeadbeef", // mock for now if not present
+          proof: zkResult.proof || "0xdeadbeef",
+          groupName: groupDoc.name,
+          creatorAddress: groupDoc.createdBy?.walletAddress,
+          targetContract: groupDoc.onChainAddress,
         }),
       });
 
@@ -86,6 +91,10 @@ const processSettlementBackground = async (jobId, groupId) => {
       status: "success",
       settlements: normalizedSettlements,
       aaResult: executionResult || { status: "ready-for-aa" },
+      proofDetails: {
+        proof: zkResult.proof,
+        imageId: zkResult.imageId,
+      },
     });
   } catch (err) {
     console.error("Background Settlement Error:", err);

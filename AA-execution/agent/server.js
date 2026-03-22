@@ -16,11 +16,11 @@ app.use(express.json({ limit: "50mb" }));
 // Body: { settlements: [...], proof: "0x..." }
 app.post("/execute-settlement", async (req, res) => {
   try {
-    const { settlements, proof } = req.body;
+    const { settlements, proof, groupName, creatorAddress, targetContract } = req.body;
 
-    if (!settlements || !proof) {
+    if (!settlements || !proof || !groupName || !creatorAddress || !targetContract) {
       return res.status(400).json({
-        error: "missing settlements or proof",
+        error: "missing required payload parameters",
       });
     }
 
@@ -31,10 +31,12 @@ app.post("/execute-settlement", async (req, res) => {
     }
 
     console.log(`\nReceived settlement request`);
+    console.log(`  Target:      ${targetContract}`);
+    console.log(`  Group Name:  ${groupName}`);
     console.log(`  Settlements: ${settlements.length}`);
     console.log(`  Proof:       ${proof.slice(0, 20)}...`);
 
-    const results = await executeSettlement(settlements, proof);
+    const results = await executeSettlement(settlements, proof, targetContract, creatorAddress, groupName);
 
     res.json({
       success: true,
@@ -62,8 +64,15 @@ app.get("/test", async (req, res) => {
       },
     ];
     const proof = "0xdeadbeef";
+    const dummyTarget = process.env.GROUP_ADDRESS || "0x52184Ee73557e60D9d7e18c781493fBF422a26Df";
 
-    const results = await executeSettlement(settlements, proof);
+    const results = await executeSettlement(
+      settlements, 
+      proof, 
+      dummyTarget, 
+      process.env.ALICE_ADDRESS, 
+      "Test Group V2"
+    );
 
     res.json({ success: true, results });
 

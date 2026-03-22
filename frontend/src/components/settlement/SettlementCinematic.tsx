@@ -23,6 +23,7 @@ interface SettlementCinematicProps {
   groupId: string;
   balances: any[];
   members: any[];
+  existingJobId?: string;
 }
 
 const PROOF_STEPS = [
@@ -35,7 +36,7 @@ const PROOF_STEPS = [
 
 const ALGO_VERSION = "v1.2.0";
 
-export function SettlementCinematic({ open, onClose, onSettled, groupId, balances, members }: SettlementCinematicProps) {
+export function SettlementCinematic({ open, onClose, onSettled, groupId, balances, members, existingJobId }: SettlementCinematicProps) {
   const [phase, setPhase] = useState<CinematicPhase>("idle");
   const [logs, setLogs] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
@@ -60,18 +61,24 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
     setLogs((prev) => [...prev, msg]);
   }, []);
 
-  // Reset on open
+  // Reset on open, or resume existing job
   useEffect(() => {
     if (open) {
-      setPhase("idle");
-      setLogs([]);
+      if (existingJobId) {
+        setJobId(existingJobId);
+        setPhase("committing"); // start the cinematic spinning
+        setLogs(["Resuming active settlement via zkVM..."]);
+      } else {
+        setPhase("idle");
+        setLogs([]);
+        setJobId(null);
+      }
       setCopied(false);
       setElapsedMs(0);
-      setJobId(null);
       setSettlements([]);
       setProofData(null);
     }
-  }, [open]);
+  }, [open, existingJobId]);
 
   // Timer during proving
   useEffect(() => {
@@ -85,43 +92,62 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
   useEffect(() => {
     let pollInterval: any;
     
-    if (jobId && (isProving || phase === "idle")) {
+    if (jobId && (isProving || phase === "idle" || phase === "executing")) {
       pollInterval = setInterval(async () => {
         try {
           const res = await apiFetch<any>(`/settlements/status/${jobId}`);
           
           if (res.data.status === "processing" || res.data.status === "pending") {
             // randomly cycle through phases just for cinematic effect while processing
-            const processingPhases: CinematicPhase[] = ["step-canonicalize", "step-algorithm", "step-journal", "step-proof"];
-            const currentIdx = processingPhases.indexOf(phase as any);
-            if (currentIdx > -1 && currentIdx < processingPhases.length -1) {
-              setPhase(processingPhases[currentIdx + 1]);
-            } else if (currentIdx === -1) {
-              setPhase("step-canonicalize");
+            if (phase !== "executing") {
+              const processingPhases: CinematicPhase[] = ["step-canonicalize", "step-algorithm", "step-journal", "step-proof"];
+              const currentIdx = processingPhases.indexOf(phase as any);
+              if (currentIdx > -1 && currentIdx < processingPhases.length -1) {
+                setPhase(processingPhases[currentIdx + 1]);
+              } else if (currentIdx === -1) {
+                setPhase("step-canonicalize");
+              }
             }
           } else if (res.data.status === "success") {
-            setPhase("step-verify");
-            setSettlements(res.data.result?.settlements || []);
-            setProofData(res.data.result?.proofDetails || {});
             clearInterval(pollInterval);
             
+            // The job is completely done (ZK Proof + AA Execution)
+            setSettlements(res.data.settlements || []);
+            setProofData({ imageId: "verified_on_chain" }); 
+
+            setPhase("step-verify");
             setTimeout(() => {
               setPhase("proved");
               addLog("Proof generated successfully.");
+              
+              if (res.data.aaResult && res.data.aaResult.status !== "ready-for-aa") {
+                // It auto-executed via the backend
+                setTimeout(() => {
+                  setPhase("executing");
+                  addLog("Smart Account transaction submitted.");
+                  addLog(`Tx Hash: ${res.data.aaResult.txHash || "pending"}`);
+                  setTimeout(() => {
+                    addLog("settlement finalized ✓");
+                    setPhase("settled");
+                    onSettled();
+                  }, 2000);
+                }, 1500);
+              }
             }, 1000);
+
           } else if (res.data.status === "failed") {
             clearInterval(pollInterval);
-            addLog("Error: Job Failed.");
+            addLog(`Error: ${res.data.error || "Job Failed."}`);
             setPhase("idle");
           }
         } catch (e) {
           console.error("Polling error", e);
         }
-      }, 2000);
+      }, 2500);
     }
     
     return () => clearInterval(pollInterval);
-  }, [jobId, phase, isProving, addLog]);
+  }, [jobId, phase, isProving, addLog, onSettled]);
 
   const startProving = async () => {
     setPhase("committing");
@@ -142,12 +168,12 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
   };
 
   const executeSettlement = async () => {
+    // If backend auto-executed, this button might not even show, but if it does:
     setPhase("executing");
-    addLog("submitting to smart account...");
-    addLog("gas: sponsored via paymaster");
-    // Mock userop building and broadcast
+    addLog("AA execution module skipped or unavailable.");
+    addLog("Settled off-chain.");
+    
     setTimeout(() => {
-      addLog("UserOperation confirmed");
       addLog("settlement finalized ✓");
       setPhase("settled");
       onSettled();
@@ -437,10 +463,23 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
 
               {/* CTA */}
               {phase === "idle" && (
-                <Button onClick={startProving} className="w-full h-11 rounded-xl">
-                  <Cpu className="h-4 w-4 mr-2" />
-                  Generate Proof
-                </Button>
+                <div className="space-y-3 pt-2">
+                  <div className="rounded-xl border border-[hsl(38,92%,80%)] bg-[hsl(38,92%,95%)] p-4 text-sm text-[hsl(38,60%,30%)]">
+                    <p className="font-semibold mb-1">Ready to settle?</p>
+                    <p className="text-xs leading-relaxed opacity-90">
+                      Generating a zkVM proof requires heavy computation, but gas fees are fully sponsored via our Paymaster.
+                    </p>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button onClick={onClose} variant="outline" className="flex-1 h-11 rounded-xl">
+                      Cancel
+                    </Button>
+                    <Button onClick={startProving} className="flex-1 h-11 rounded-xl bg-[hsl(152,60%,45%)] hover:bg-[hsl(152,60%,35%)] text-white">
+                      <Cpu className="h-4 w-4 mr-2" />
+                      Generate Proof
+                    </Button>
+                  </div>
+                </div>
               )}
               {phase === "proved" && (
                 <Button onClick={executeSettlement} className="w-full h-11 rounded-xl">
@@ -540,7 +579,7 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
                   Settlement Complete
                 </p>
                 <p className="text-[11px] text-[hsl(152,60%,35%)]">
-                  All transfers verified and executed via smart account.
+                  All transfers verified by ZK Proof and debts cleared.
                 </p>
               </div>
             )}

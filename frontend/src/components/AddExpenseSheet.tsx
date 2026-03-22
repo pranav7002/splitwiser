@@ -37,11 +37,21 @@ export function AddExpenseSheet({ open, onClose, groupId, members, onAdded }: Ad
     }
   }, [open]);
 
-  const perPerson = amount && members?.length ? (parseFloat(amount) / members.length).toFixed(2) : "0.00";
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value;
+    // Allow empty string, or positive numbers with up to 2 decimal places
+    if (val === "" || /^\d*\.?\d{0,2}$/.test(val)) {
+      setAmount(val);
+    }
+  };
+
+  const parsedAmount = parseFloat(amount || "0");
+  const isValid = parsedAmount > 0 && description.trim().length > 0 && !!payer;
+  const perPerson = parsedAmount && members?.length > 0 ? (parsedAmount / members.length).toFixed(2) : "0.00";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || !groupId || !payer) return;
+    if (!isValid) return;
     
     setLoading(true);
     try {
@@ -88,23 +98,27 @@ export function AddExpenseSheet({ open, onClose, groupId, members, onAdded }: Ad
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
               <Input
-                type="number"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 placeholder="0.00"
                 className="pl-7 text-lg font-semibold tabular"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={handleAmountChange}
                 autoFocus
               />
             </div>
+            {amount && parsedAmount === 0 && (
+              <p className="text-[10px] text-[hsl(0,72%,50%)] mt-1.5 ml-1">Amount must be greater than zero</p>
+            )}
           </div>
 
           <div>
             <label className="section-label mb-1.5 block">Description</label>
             <Input
-              placeholder="What was this for?"
+              placeholder="What was this for? (e.g., Dinner, Uber)"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              maxLength={50}
             />
           </div>
 
@@ -150,7 +164,7 @@ export function AddExpenseSheet({ open, onClose, groupId, members, onAdded }: Ad
             <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" className="flex-1" disabled={loading || !amount}>
+            <Button type="submit" className="flex-1" disabled={loading || !isValid}>
               {loading ? "Adding..." : "Add Expense"}
             </Button>
           </div>

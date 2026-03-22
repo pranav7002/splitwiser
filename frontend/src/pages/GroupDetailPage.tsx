@@ -7,6 +7,7 @@ import { MemberSidebar } from "@/components/group/MemberSidebar";
 import { ExpenseFeed } from "@/components/group/ExpenseFeed";
 import { SummaryPanel } from "@/components/group/SummaryPanel";
 import { SettlementCinematic } from "@/components/settlement/SettlementCinematic";
+import NotFound from "./NotFound";
 
 import { useSession } from "@/contexts/SessionContext";
 import { apiFetch } from "@/lib/api";
@@ -22,6 +23,7 @@ export default function GroupDetailPage() {
   const [groupData, setGroupData] = useState<any>(null);
   const [balanceData, setBalanceData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const fetchDetails = async () => {
     if (!id) return;
@@ -32,8 +34,9 @@ export default function GroupDetailPage() {
       ]);
       setGroupData(grpRes.data);
       setBalanceData(balRes.data);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -43,7 +46,65 @@ export default function GroupDetailPage() {
     fetchDetails();
   }, [id]);
 
-  if (loading || !groupData) return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">Loading Vault...</div>;
+  // Auto-open cinematic if we discover a processing job on load
+  useEffect(() => {
+    if (balanceData?.activeJob && !showSettlement) {
+      setShowSettlement(true);
+    }
+  }, [balanceData?.activeJob]);
+
+  if (error) {
+    return <NotFound />;
+  }
+
+  if (loading || !groupData) {
+    return (
+      <div className="min-h-screen bg-background">
+        <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-sm border-b border-border">
+          <div className="max-w-7xl mx-auto px-6 h-14 flex items-center gap-3">
+            <div className="w-4 h-4 rounded bg-muted animate-pulse" />
+            <div className="space-y-1.5">
+              <div className="w-32 h-4 rounded bg-muted animate-pulse" />
+              <div className="w-20 h-2 rounded bg-muted animate-pulse" />
+            </div>
+          </div>
+        </header>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+          <div className="grid lg:grid-cols-[240px_1fr_320px] gap-8">
+            <div className="hidden lg:block space-y-4">
+              <div className="w-24 h-4 rounded bg-muted animate-pulse mb-6" />
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-muted animate-pulse" />
+                  <div className="w-24 h-3 rounded bg-muted animate-pulse" />
+                </div>
+              ))}
+            </div>
+            <div className="space-y-4 mt-8 lg:mt-0">
+              <div className="flex justify-between mb-8">
+                <div className="w-24 h-4 rounded bg-muted animate-pulse" />
+                <div className="w-16 h-4 rounded bg-muted animate-pulse" />
+              </div>
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="rounded-xl border border-border bg-card p-4 flex gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-muted animate-pulse" />
+                  <div className="space-y-2 flex-1 pt-1">
+                    <div className="w-32 h-3 rounded bg-muted animate-pulse" />
+                    <div className="w-20 h-2 rounded bg-muted animate-pulse" />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-5">
+              <div className="rounded-2xl border border-border bg-card p-6 h-32 bg-muted/20 animate-pulse" />
+              <div className="rounded-2xl border border-border bg-card p-6 h-48 bg-muted/20 animate-pulse" />
+              <div className="w-full h-12 rounded-xl bg-muted animate-pulse" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -70,6 +131,8 @@ export default function GroupDetailPage() {
             totals={balanceData?.totals}
             myBalance={balanceData?.balances?.find((b: any) => b.walletAddress.toLowerCase() === currentUser?.walletAddress.toLowerCase())?.balance || "0"}
             isSettled={isSettled}
+            activeJob={balanceData?.activeJob}
+            lastSettlement={balanceData?.lastSettlement}
             onSettle={() => setShowSettlement(true)}
           />
         </div>
@@ -101,6 +164,7 @@ export default function GroupDetailPage() {
         groupId={id}
         balances={balanceData?.balances || []}
         members={groupData.members}
+        existingJobId={balanceData?.activeJob?.jobId}
       />
     </div>
   );

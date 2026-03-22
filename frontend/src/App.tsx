@@ -8,6 +8,7 @@ import DashboardPage from "./pages/DashboardPage.tsx";
 import GroupDetailPage from "./pages/GroupDetailPage.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { SessionProvider } from "./contexts/SessionContext.tsx";
+import { ProtectedRoute } from "./components/ProtectedRoute.tsx";
 
 const queryClient = new QueryClient();
 
@@ -20,8 +21,22 @@ const App = () => (
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Index />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/group/:id" element={<GroupDetailPage />} />
+            <Route 
+              path="/dashboard" 
+              element={
+                <ProtectedRoute>
+                  <DashboardPage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/group/:id" 
+              element={
+                <ProtectedRoute>
+                  <GroupDetailPage />
+                </ProtectedRoute>
+              } 
+            />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

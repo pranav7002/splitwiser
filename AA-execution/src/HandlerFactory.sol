@@ -21,14 +21,15 @@ contract HandlerFactory {
     }
 
     function createGroup(
+        address creator,
         string calldata name
     ) public returns (address groupAddr, bytes32 groupId) {
-        groupId = _salt(msg.sender, name);
+        groupId = _salt(creator, name);
         groupAddr = address(
-            new SplitWise{salt: groupId}(msg.sender, name, verifier, imageId)
+            new SplitWise{salt: groupId}(creator, name, verifier, imageId)
         );
         groups[groupId] = groupAddr;
-        emit GroupCreated(groupId, groupAddr, msg.sender);
+        emit GroupCreated(groupId, groupAddr, creator);
     }
 
     function predictAddress(

@@ -79,7 +79,7 @@ async function getSmartAccountClient() {
 }
 
 // ── Execute settlement: ONE UserOp, ONE atomic call ──────────
-export async function executeSettlement(settlements, proof) {
+export async function executeSettlement(settlements, proof, targetContract, creatorAddress, groupName) {
   const client = await getSmartAccountClient();
 
   const totalValue = settlements.reduce(
@@ -100,11 +100,37 @@ export async function executeSettlement(settlements, proof) {
   });
 
   // ── Step 1: Encode the call for the Smart Account ──────────
-  const userOpCallData = await client.account.encodeCallData({
-    to:    process.env.GROUP_ADDRESS,
-    data:  calldata,
-    value: totalValue,
-  });
+  const code = await publicClient.getBytecode({ address: targetContract });
+  
+  let userOpCallData;
+  if (!code || code === "0x") {
+    console.log(`Contract not deployed at ${targetContract}. Batching deployment with settlement!`);
+    const factoryCalldata = encodeFunctionData({
+      abi: [{
+        "inputs": [
+          { "internalType": "address", "name": "creator", "type": "address" },
+          { "internalType": "string", "name": "name", "type": "string" }
+        ],
+        "name": "createGroup",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+      }],
+      functionName: "createGroup",
+      args: [creatorAddress, groupName]
+    });
+
+    userOpCallData = await client.account.encodeCallData([
+      { to: "0x2212e8eb5f6825e227fabe361623f0cb507119ec", data: factoryCalldata, value: 0n },
+      { to: targetContract, data: calldata, value: totalValue }
+    ]);
+  } else {
+    userOpCallData = await client.account.encodeCallData({
+      to:    targetContract,
+      data:  calldata,
+      value: totalValue,
+    });
+  }
 
   // ── Step 2: Fetch fast gas prices from Pimlico ─────────────
   console.log(`Fetching gas prices from Pimlico bundler...`);
