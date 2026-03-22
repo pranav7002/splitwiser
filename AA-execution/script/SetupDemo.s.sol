@@ -64,14 +64,20 @@ contract SetupDemo is Script {
         console.log("Carol added as member");
     }
 
-    function _fundAccounts() internal {
-        // ← no paymaster whitelisting needed anymore
-        vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
-        payable(aliceAccount).transfer(0.05 ether);
-        payable(bobAccount).transfer(0.05 ether);
-        payable(carolAccount).transfer(0.05 ether);
-        vm.stopBroadcast();
+   function _fundAccounts() internal {
+    vm.startBroadcast(vm.envUint("PRIVATE_KEY"));
+    
+    (bool okAlice,) = payable(aliceAccount).call{value: 0.05 ether}("");
+    require(okAlice, "alice transfer failed");
+    
+    (bool okBob,) = payable(bobAccount).call{value: 0.05 ether}("");
+    require(okBob, "bob transfer failed");
+    
+    (bool okCarol,) = payable(carolAccount).call{value: 0.05 ether}("");
+    require(okCarol, "carol transfer failed");
+    
+    vm.stopBroadcast();
 
-        console.log("Funded each SmartAccount with 0.05 ETH");
-    }
+    console.log("Funded each SmartAccount with 0.05 ETH");
+}
 }

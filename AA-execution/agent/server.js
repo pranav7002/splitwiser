@@ -9,7 +9,7 @@ import express from "express";
 import { executeSettlement } from "./executeSettlement.js";
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 
 // ── POST /execute-settlement ──────────────────────────────────
 // Friend's backend calls this after zkVM generates proof
@@ -34,7 +34,14 @@ app.post("/execute-settlement", async (req, res) => {
     console.log(`  Settlements: ${settlements.length}`);
     console.log(`  Proof:       ${proof.slice(0, 20)}...`);
 
-    const results = await executeSettlement(settlements, proof);
+   const timeoutPromise = new Promise((_, reject) =>
+     setTimeout(() => reject(new Error("settlement timeout after 60s")), 60000)
+  );
+
+const results = await Promise.race([
+  executeSettlement(settlements, proof),
+  timeoutPromise
+]);
 
     res.json({
       success: true,
@@ -54,13 +61,22 @@ app.get("/test", async (req, res) => {
     console.log("\nRunning test with dummy data...");
 
     // dummy data exactly as friend described
-    const settlements = [
-      {
-        from:   process.env.BOB_ADDRESS,
-        to:     process.env.ALICE_ADDRESS,
-        amount: "10000000000000000",   // 0.01 ETH in wei
-      },
-    ];
+    const bobAddress = process.env.BOB_ADDRESS;
+const aliceAddress = process.env.ALICE_ADDRESS;
+
+if (!bobAddress || !aliceAddress) {
+  return res.status(500).json({ 
+    error: "BOB_ADDRESS or ALICE_ADDRESS not set in .env" 
+  });
+}
+
+const settlements = [
+  {
+    from:   bobAddress,
+    to:     aliceAddress,
+    amount: "10000000000000000",
+  },
+];
     const proof = "0xdeadbeef";
 
     const results = await executeSettlement(settlements, proof);
@@ -79,7 +95,7 @@ app.get("/health", (_, res) => {
 });
 
 // ── start ─────────────────────────────────────────────────────
-const PORT = process.env.PORT || 3001;
+const PORT = parseInt(process.env.PORT) || 3001;
 app.listen(PORT, () => {
   console.log(`AA execution service running on port ${PORT}`);
   console.log(`POST http://localhost:${PORT}/execute-settlement`);

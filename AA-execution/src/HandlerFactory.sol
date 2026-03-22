@@ -14,12 +14,13 @@ contract HandlerFactory {
 
     event GroupCreated(bytes32 indexed groupId, address indexed groupAddr, address indexed creator);
 
-    function createGroup(
-        string calldata name
-    ) public returns (address groupAddr, bytes32 groupId) {
-        groupId = _salt(msg.sender, name);
-        groupAddr = address(new SplitWise{salt: groupId}(msg.sender, name));
-        groups[groupId]=groupAddr;
+  function createGroup(
+    string calldata name
+) public returns (address groupAddr, bytes32 groupId)  {
+    groupId = _salt(msg.sender, name);
+    require (groups[groupId] == address(0), "group already exists"); 
+    groupAddr = address(new SplitWise{salt: groupId}(msg.sender, name));
+    groups[groupId] = groupAddr;
         emit GroupCreated(groupId, groupAddr,msg.sender);
     }
 
@@ -59,7 +60,9 @@ contract HandlerFactory {
     }
 
     //////////////getters//////////////
-    function getGroups(bytes32 groupId) external view returns(address){
-        return groups[groupId];
+   function getGroups(bytes32 groupId) external view returns(address){
+    address addr = groups[groupId];
+    require(addr != address(0), "group not found"); 
+    return addr;
     }
 }

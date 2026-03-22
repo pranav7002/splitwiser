@@ -37,7 +37,7 @@ contract SplitWiseTest is Test {
     }
 
     function test_alice_is_member() public {
-        assertTrue(group._isMember(alice) == true); 
+        assertTrue(group._isMember(alice)); 
     }
 
     function test_bob_is_member() public view {
@@ -76,20 +76,20 @@ contract SplitWiseTest is Test {
     }
 
     function test_settle() public {
-        address[] memory debtors = new address[](1);
-        uint256[] memory shares  = new uint256[](1);
-        debtors[0] = bob; shares[0] = 0.01 ether;
+    address[] memory debtors = new address[](1);
+    uint256[] memory shares  = new uint256[](1);
+    debtors[0] = bob; shares[0] = 0.01 ether;
 
-        vm.prank(alice);
-        group.addExpense("Coffee", debtors, shares);
+    vm.prank(alice);
+    group.addExpense("Coffee", debtors, shares);
 
-        uint256 aliceBefore = alice.balance;
+    uint256 aliceBefore = alice.balance;
 
-        vm.prank(bob);
-        group.settle{value: 0.01 ether}(alice);
+    vm.prank(bob);
+    group.settle{value: 0.01 ether}(alice);
 
-        assertEq(group.getBalance(bob, alice), 0);
-        assertEq(alice.balance, aliceBefore + 0.01 ether);
+    assertEq(group.getBalance(bob, alice), 0);
+    assertEq(alice.balance, aliceBefore + 0.01 ether);
     }
 
     function test_settleWithProof() public {
@@ -125,7 +125,7 @@ contract SplitWiseTest is Test {
         ISplitWise.Settlement[] memory settlements = new ISplitWise.Settlement[](1);
         settlements[0] = ISplitWise.Settlement({ from: bob, to: alice, amount: 0.005 ether }); 
 
-        vm.expectRevert("wrong amount");
+        vm.expectRevert("invalid amount"); 
         group.settleWithProof{value: 0.005 ether}(settlements, "0x");
     }
 
@@ -133,7 +133,7 @@ contract SplitWiseTest is Test {
         ISplitWise.Settlement[] memory settlements = new ISplitWise.Settlement[](1);
         settlements[0] = ISplitWise.Settlement({ from: bob, to: alice, amount: 0.01 ether });
 
-        vm.expectRevert("nothing owed");
+        vm.expectRevert("invalid amount"); 
         group.settleWithProof{value: 0.01 ether}(settlements, "0x");
     }
 

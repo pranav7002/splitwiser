@@ -21,6 +21,7 @@ interface ISplitWise {
     error ZeroAmount();
     error NothingToSettle();
     error TransferFailed();
+    error ArraysLengthNotMatch();
 
     // ── core functions ────────────────────────────────────────────
     function addMember(address member) external;

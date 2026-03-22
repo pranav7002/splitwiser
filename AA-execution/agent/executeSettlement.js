@@ -24,6 +24,7 @@ const SPLITWISE_ABI = [
   {
     name: "settleWithProof",
     type: "function",
+    stateMutability: "payable",
     inputs: [
       {
         name: "settlements",
@@ -36,13 +37,14 @@ const SPLITWISE_ABI = [
       },
       { name: "proof", type: "bytes" },
     ],
+    outputs: [],
   },
 ];
 
 
 
 // ── Pimlico setup ─────────────────────────────────────────────
-const PIMLICO_URL =process.env.BUNDLER_URL;
+
 const publicClient = createPublicClient({
   chain:     sepolia,
   transport: http(process.env.SEPOLIA_RPC),
@@ -128,12 +130,15 @@ export async function executeSettlement(settlements, proof) {
     }],
   });
 
-  const receipt = await bundlerClient.waitForUserOperationReceipt({
-    hash: userOpHash,
-  });
+ const receipt = await bundlerClient.waitForUserOperationReceipt({
+  hash: userOpHash,
+});
 
-  return {
-    userOpHash,
-    txHash: receipt.receipt.transactionHash,
-  };
+const txHash = receipt?.receipt?.transactionHash;
+if (!txHash) throw new Error("no txHash in receipt");
+
+return {
+  userOpHash,
+  txHash,
+};
 }

@@ -1,14 +1,14 @@
 //SPDX-License-Identifier:MIT
-pragma solidity ^0.8.18;
+pragma solidity ^0.8.23;
 
 import "./ISplitWise.sol";
 
 /** @dev Core group contract. Stores who owes whom in a debt graph (_balances[debtor][creditor]). Has addExpense to record debts and settleWithProof to execute the zkVM's settlement plan atomically on-chain. */
 contract SplitWise is ISplitWise {
-    error MemberAlreadyThere();
+    error AlreadyMember();
     error ArraysLengthNotMatch();
-    error NotMeber();
-    error SettleFailed();
+    error NotMember();
+    
 
     string public groupName;
     address public owner;
@@ -27,11 +27,14 @@ contract SplitWise is ISplitWise {
     }
 
     function addMember(address member) public {
+
+         require(msg.sender == owner, "not owner");
         if (_isMember[member]) {
-            revert MemberAlreadyThere();
+           revert AlreadyMember();
         }
         _members.push(member);
         _isMember[member] = true;
+        emit MemberAdded(member); 
     }
 
     function addExpense(
@@ -52,6 +55,7 @@ contract SplitWise is ISplitWise {
         for (uint256 i; i < debtors.length; ++i) {
             balance[debtors[i]][msg.sender] += shares[i];
         }
+          emit ExpenseAdded(msg.sender, total, description, 0);
     }
     function settle(address creditor) external payable {
         uint256 owed = balance[msg.sender][creditor];
@@ -71,11 +75,18 @@ contract SplitWise is ISplitWise {
         require(settlements.length > 0, "empty");
         (proof);
 
+        uint256 totalRequired;
+         for (uint256 i; i < settlements.length; ++i) {
+        totalRequired += settlements[i].amount;
+        }
+
+          require(msg.value >= totalRequired, "insufficient ETH");
+
         for (uint256 i; i < settlements.length; ++i) {
             Settlement calldata s = settlements[i];
 
             uint256 owed = balance[s.from][s.to];
-            require(balance[s.from][s.to] >= s.amount, "invalid amount");
+           require(owed >= s.amount, "invalid amount");
             balance[s.from][s.to] -= s.amount;
 
             (bool ok, ) = s.to.call{value: s.amount}("");
