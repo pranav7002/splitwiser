@@ -1,0 +1,123 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 98%;
+    --foreground: 240 10% 3.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+
+    --accent: 240 5% 96%;
+    --accent-foreground: 240 6% 10%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 239 84% 67%;
+
+    --radius: 0.625rem;
+
+    /* Semantic colors */
+    --success: 152 60% 94%;
+    --success-foreground: 152 60% 24%;
+    --warning: 38 92% 94%;
+    --warning-foreground: 32 60% 30%;
+    --info: 239 84% 95%;
+    --info-foreground: 239 84% 40%;
+
+    /* Sidebar */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 5% 96%;
+    --sidebar-accent-foreground: 240 6% 10%;
+    --sidebar-border: 240 6% 90%;
+    --sidebar-ring: 239 84% 67%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply tracking-tight text-foreground;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+    overflow-wrap: break-word;
+  }
+}
+
+@layer utilities {
+  .text-tertiary {
+    color: hsl(240 4% 66%);
+  }
+
+  .bg-canvas {
+    background-color: hsl(0 0% 100%);
+  }
+
+  .border-structural {
+    border-color: hsl(240 6% 90%);
+  }
+
+  .bg-success {
+    background-color: hsl(var(--success));
+  }
+
+  .text-success {
+    color: hsl(var(--success-foreground));
+  }
+
+  .bg-warning {
+    background-color: hsl(var(--warning));
+  }
+
+  .text-warning {
+    color: hsl(var(--warning-foreground));
+  }
+
+  .bg-info {
+    background-color: hsl(var(--info));
+  }
+
+  .text-info {
+    color: hsl(var(--info-foreground));
+  }
+
+  .section-label {
+    @apply text-[11px] font-semibold uppercase tracking-wider text-muted-foreground;
+  }
+
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
