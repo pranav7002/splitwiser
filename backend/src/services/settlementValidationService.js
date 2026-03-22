@@ -5,7 +5,14 @@ const normalizeAddress = (value) => String(value).trim().toLowerCase();
 const isValidAddress = (value) =>
   typeof value === "string" && ETH_ADDRESS_REGEX.test(value.trim());
 
-const isInteger = (value) => Number.isInteger(value);
+const isValidAmount = (value) => {
+  try {
+    BigInt(value);
+    return true;
+  } catch (e) {
+    return false;
+  }
+};
 
 export const validateParticipants = (participants) => {
   if (!Array.isArray(participants) || participants.length === 0) {
@@ -25,8 +32,8 @@ export const validateParticipants = (participants) => {
       throw new Error(`Invalid walletAddress at index ${index}`);
     }
 
-    if (!isInteger(balance)) {
-      throw new Error(`Balance must be an integer at index ${index}`);
+    if (!isValidAmount(balance)) {
+      throw new Error(`Balance must be a valid amount (string or number) at index ${index}`);
     }
 
     const addr = normalizeAddress(walletAddress);
@@ -40,13 +47,13 @@ export const validateParticipants = (participants) => {
     return {
       ...participant,
       walletAddress: addr,
-      balance,
+      balance: String(balance), // Normalize to string for output
     };
   });
 
-  const totalBalance = normalized.reduce((sum, p) => sum + p.balance, 0);
+  const totalBalance = normalized.reduce((sum, p) => sum + BigInt(p.balance), 0n);
 
-  if (totalBalance !== 0) {
+  if (totalBalance !== 0n) {
     throw new Error("Participant balances must sum to zero");
   }
 
@@ -61,7 +68,7 @@ export const validateSettlementOutput = (participants, settlements) => {
   }
 
   const balanceMap = new Map(
-    normalizedParticipants.map((p) => [p.walletAddress, p.balance])
+    normalizedParticipants.map((p) => [p.walletAddress, BigInt(p.balance)])
   );
 
   const normalizedSettlements = [];
@@ -87,7 +94,7 @@ export const validateSettlementOutput = (participants, settlements) => {
       throw new Error(`Settlement from/to cannot be the same at index ${i}`);
     }
 
-    if (!isInteger(amount) || amount <= 0) {
+    if (!isValidAmount(amount) || BigInt(amount) <= 0n) {
       throw new Error(`Invalid settlement amount at index ${i}`);
     }
 
@@ -104,25 +111,26 @@ export const validateSettlementOutput = (participants, settlements) => {
 
     const fromBalanceBefore = balanceMap.get(fromAddr);
     const toBalanceBefore = balanceMap.get(toAddr);
+    const amt = BigInt(amount);
 
-    if (fromBalanceBefore >= 0) {
+    if (fromBalanceBefore >= 0n) {
       throw new Error(
         `Settlement.from must start with a negative balance: ${from}`
       );
     }
 
-    if (toBalanceBefore <= 0) {
+    if (toBalanceBefore <= 0n) {
       throw new Error(`Settlement.to must start with a positive balance: ${to}`);
     }
 
-    const fromBalanceAfter = fromBalanceBefore + amount;
-    const toBalanceAfter = toBalanceBefore - amount;
+    const fromBalanceAfter = fromBalanceBefore + amt;
+    const toBalanceAfter = toBalanceBefore - amt;
 
-    if (fromBalanceAfter > 0) {
+    if (fromBalanceAfter > 0n) {
       throw new Error(`Settlement overpays debtor: ${from}`);
     }
 
-    if (toBalanceAfter < 0) {
+    if (toBalanceAfter < 0n) {
       throw new Error(`Settlement overpays creditor: ${to}`);
     }
 
@@ -132,12 +140,12 @@ export const validateSettlementOutput = (participants, settlements) => {
     normalizedSettlements.push({
       from: fromAddr,
       to: toAddr,
-      amount,
+      amount: String(amount),
     });
   }
 
   for (const [address, balance] of balanceMap.entries()) {
-    if (balance !== 0) {
+    if (balance !== 0n) {
       throw new Error(
         `Settlement does not fully clear balances; residual balance at ${address}: ${balance}`
       );
@@ -158,7 +166,7 @@ export const settlementsAreEqual = (a, b) => {
     if (
       normalizeAddress(x.from) !== normalizeAddress(y.from) ||
       normalizeAddress(x.to) !== normalizeAddress(y.to) ||
-      x.amount !== y.amount
+      String(x.amount) !== String(y.amount)
     ) {
       return false;
     }

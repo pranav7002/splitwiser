@@ -5,7 +5,7 @@ const ETH_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
 export const createUser = async (req, res) => {
   try {
-    const { name, email, walletAddress } = req.body ?? {};
+    const { name, email, walletAddress, smartAccountAddress } = req.body ?? {};
 
     if (typeof name !== "string" || !name.trim()) {
       return sendError(res, "name is required");
@@ -19,11 +19,20 @@ export const createUser = async (req, res) => {
       return sendError(res, "walletAddress must be a valid Ethereum address (0x + 40 hex chars)");
     }
 
-    const user = await User.create({
+    const payload = {
       name: name.trim(),
       email: email.trim().toLowerCase(),
       walletAddress: walletAddress.trim().toLowerCase(),
-    });
+    };
+
+    if (smartAccountAddress) {
+      if (!ETH_ADDRESS_REGEX.test(smartAccountAddress.trim())) {
+        return sendError(res, "smartAccountAddress must be a valid Ethereum address");
+      }
+      payload.smartAccountAddress = smartAccountAddress.trim().toLowerCase();
+    }
+
+    const user = await User.create(payload);
 
     return sendSuccess(res, user, 201);
   } catch (err) {
@@ -44,6 +53,34 @@ export const listUsers = async (req, res) => {
 
     return sendSuccess(res, users);
   } catch (err) {
+    return sendError(res, err.message, 500);
+  }
+};
+
+export const updateSmartAccount = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { smartAccountAddress } = req.body ?? {};
+
+    if (!smartAccountAddress || !ETH_ADDRESS_REGEX.test(smartAccountAddress.trim())) {
+      return sendError(res, "Valid smartAccountAddress (0x + 40 hex chars) is required");
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      id,
+      { smartAccountAddress: smartAccountAddress.trim().toLowerCase() },
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      return sendError(res, "User not found", 404);
+    }
+
+    return sendSuccess(res, updatedUser);
+  } catch (err) {
+    if (err?.code === 11000) {
+      return sendError(res, `This smartAccountAddress is already linked to another user`, 409);
+    }
     return sendError(res, err.message, 500);
   }
 };

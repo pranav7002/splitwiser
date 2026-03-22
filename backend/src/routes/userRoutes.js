@@ -5,5 +5,6 @@ const router = Router();
 
 router.post("/", createUser);
 router.get("/", listUsers);
+router.put("/:id/smart-account", updateSmartAccount);
 
 export default router;

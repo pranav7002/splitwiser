@@ -1,8 +1,9 @@
 import { Router } from "express";
-import { settleGroup } from "../controller/settlementController.js";
+import { settleGroupAsync, getSettlementJobStatus } from "../controller/settlementController.js";
 
 const router = Router();
 
-router.post("/settle", settleGroup);
+router.post("/", settleGroupAsync);
+router.get("/status/:jobId", getSettlementJobStatus);
 
 export default router;

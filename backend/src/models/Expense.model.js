@@ -13,7 +13,7 @@ const expenseSchema = new mongoose.Schema(
       required: true,
     },
     amount: {
-      type: Number,
+      type: String,
       required: true,
     },
     splits: [
@@ -24,12 +24,16 @@ const expenseSchema = new mongoose.Schema(
           required: true,
         },
         amount: {
-          type: Number,
+          type: String,
           required: true,
         },
       },
     ],
     description: String,
+    isSettled: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );
