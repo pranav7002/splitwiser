@@ -19,8 +19,7 @@ const jobSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
     },
     proofDetails: {
-      proof: String,
-      imageId: String,
+      type: mongoose.Schema.Types.Mixed,
     },
     error: {
       type: String,

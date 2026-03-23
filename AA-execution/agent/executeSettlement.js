@@ -1,7 +1,7 @@
 // agent/executeSettlement.js
 // ─────────────────────────────────────────────────────────────
 // Takes { settlements, proof } from the backend and executes
-// settleWithProof on-chain via a single ERC-4337 UserOperation.
+// settleWithProof on-chain via ERC-4337 UserOperations.
 // Uses Pimlico SimpleAccount + Paymaster as the signer wallet.
 // ─────────────────────────────────────────────────────────────
 
@@ -38,6 +38,19 @@ const SPLITWISE_ABI = [
     ],
   },
 ];
+
+const FACTORY_ABI = [{
+  "inputs": [
+    { "internalType": "address", "name": "creator", "type": "address" },
+    { "internalType": "string", "name": "name", "type": "string" }
+  ],
+  "name": "createGroup",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+}];
+
+const HANDLER_FACTORY = "0x2212e8eb5f6825e227fabe361623f0cb507119ec";
 
 // ── Pimlico + Viem setup ─────────────────────────────────────
 const publicClient = createPublicClient({
@@ -78,100 +91,110 @@ async function getSmartAccountClient() {
   });
 }
 
-// ── Execute settlement: ONE UserOp, ONE atomic call ──────────
+// ── Helper: send a single UserOp and wait for confirmation ───
+async function sendAndWait(client, callData, label) {
+  const gasPrices = await bundlerClient.getUserOperationGasPrice();
+
+  console.log(`  [${label}] Submitting UserOperation...`);
+  const userOpHash = await client.sendUserOperation({
+    userOperation: {
+      callData,
+      maxFeePerGas:         (gasPrices.fast.maxFeePerGas * 150n) / 100n,
+      maxPriorityFeePerGas: (gasPrices.fast.maxPriorityFeePerGas * 150n) / 100n,
+    },
+  });
+  console.log(`  [${label}] UserOp hash: ${userOpHash}`);
+
+  console.log(`  [${label}] Waiting for on-chain confirmation (up to 2 min)...`);
+  let receipt;
+  try {
+    receipt = await bundlerClient.waitForUserOperationReceipt({
+      hash:    userOpHash,
+      timeout: 120_000,
+    });
+    console.log(`  [${label}] CONFIRMED! TX: ${receipt.receipt.transactionHash} | Block: ${receipt.receipt.blockNumber} | ${receipt.success ? "SUCCESS" : "REVERTED"}`);
+  } catch (waitError) {
+    console.log(`  [${label}] Polling timed out — UserOp is pending in mempool.`);
+    receipt = null;
+  }
+
+  return { userOpHash, receipt };
+}
+
+// ── Main execution logic ─────────────────────────────────────
 export async function executeSettlement(settlements, proof, targetContract, creatorAddress, groupName) {
   const client = await getSmartAccountClient();
 
-  const totalValue = settlements.reduce(
-    (sum, s) => sum + BigInt(s.amount), 0n
-  );
+  // For the demo, we multiply the INR amount by 10^14 so the ETH transfers are visible
+  // on block explorers. (e.g., 40 INR -> 0.004 ETH instead of 40 wei)
+  // The Smart Account currently has ~0.005 Sepolia ETH, so this fits perfectly.
+  const DEMO_MULTIPLIER = 100000000000000n; // 10^14
 
-  const calldata = encodeFunctionData({
+  const totalValue = settlements.reduce(
+    (sum, s) => sum + (BigInt(s.amount) * DEMO_MULTIPLIER), 0n
+  );
+  console.log(`Total settlement value: ${totalValue} wei`);
+
+  // Ensure proof is valid hex bytes
+  const proofBytes = proof.startsWith("0x") ? proof : `0x${proof}`;
+
+  const settleCalldata = encodeFunctionData({
     abi:          SPLITWISE_ABI,
     functionName: "settleWithProof",
     args: [
       settlements.map(s => ({
         from:   s.from,
         to:     s.to,
-        amount: BigInt(s.amount),
+        amount: BigInt(s.amount) * DEMO_MULTIPLIER,
       })),
-      proof,
+      proofBytes,
     ],
   });
 
-  // ── Step 1: Encode the call for the Smart Account ──────────
+  // ── Check if contract needs deployment ─────────────────────
   const code = await publicClient.getBytecode({ address: targetContract });
-  
-  let userOpCallData;
+  let deployResult = null;
+
   if (!code || code === "0x") {
-    console.log(`Contract not deployed at ${targetContract}. Batching deployment with settlement!`);
+    // ── Step 1: Deploy the SplitWise contract via HandlerFactory ──
+    // The v0.6 SimpleAccount's executeBatch does NOT support per-call values.
+    // So we deploy first, then settle in a second UserOp.
+    console.log(`Contract not deployed at ${targetContract}.`);
+    console.log(`Step 1/2: Deploying SplitWise contract via HandlerFactory...`);
+
     const factoryCalldata = encodeFunctionData({
-      abi: [{
-        "inputs": [
-          { "internalType": "address", "name": "creator", "type": "address" },
-          { "internalType": "string", "name": "name", "type": "string" }
-        ],
-        "name": "createGroup",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-      }],
+      abi: FACTORY_ABI,
       functionName: "createGroup",
       args: [creatorAddress, groupName]
     });
 
-    userOpCallData = await client.account.encodeCallData([
-      { to: "0x2212e8eb5f6825e227fabe361623f0cb507119ec", data: factoryCalldata, value: 0n },
-      { to: targetContract, data: calldata, value: totalValue }
-    ]);
-  } else {
-    userOpCallData = await client.account.encodeCallData({
-      to:    targetContract,
-      data:  calldata,
-      value: totalValue,
+    const deployCallData = await client.account.encodeCallData({
+      to:    HANDLER_FACTORY,
+      data:  factoryCalldata,
+      value: 0n,
     });
+
+    deployResult = await sendAndWait(client, deployCallData, "Deploy");
+    
+    // Small delay to let the chain state propagate
+    console.log(`  Waiting 3s for chain state to propagate...`);
+    await new Promise(r => setTimeout(r, 3000));
   }
 
-  // ── Step 2: Fetch fast gas prices from Pimlico ─────────────
-  console.log(`Fetching gas prices from Pimlico bundler...`);
-  const gasPrices = await bundlerClient.getUserOperationGasPrice();
+  // ── Step 2: Execute settleWithProof (single call with value) ──
+  console.log(`${deployResult ? "Step 2/2" : "Step 1/1"}: Executing settleWithProof on ${targetContract}...`);
 
-  // ── Step 3: Send UserOperation to the bundler ──────────────
-  //    This returns almost immediately with a hash!
-  //    The AA pipeline is fully intact: SmartAccount + Paymaster + Bundler.
-  console.log(`Submitting ERC-4337 UserOperation to Pimlico...`);
-  const userOpHash = await client.sendUserOperation({
-    userOperation: {
-      callData: userOpCallData,
-      maxFeePerGas:         (gasPrices.fast.maxFeePerGas * 150n) / 100n,
-      maxPriorityFeePerGas: (gasPrices.fast.maxPriorityFeePerGas * 150n) / 100n,
-    },
+  const settleCallData = await client.account.encodeCallData({
+    to:    targetContract,
+    data:  settleCalldata,
+    value: totalValue,
   });
-  console.log(`UserOperation submitted! Hash: ${userOpHash}`);
 
-  // ── Step 4: Wait for on-chain confirmation (generous timeout) ──
-  //    This is the step that was timing out with the old 20s default.
-  //    We now give it 2 full minutes.
-  console.log(`Waiting for on-chain confirmation (up to 2 minutes)...`);
-  let receipt;
-  try {
-    receipt = await bundlerClient.waitForUserOperationReceipt({
-      hash:    userOpHash,
-      timeout: 120_000,   // 2 minutes — plenty for Sepolia congestion
-    });
-    console.log(`\nUserOperation CONFIRMED on-chain!`);
-    console.log(`  TX Hash:  ${receipt.receipt.transactionHash}`);
-    console.log(`  Block:    ${receipt.receipt.blockNumber}`);
-    console.log(`  Status:   ${receipt.success ? "SUCCESS" : "REVERTED"}`);
-  } catch (waitError) {
-    // Even if polling times out, the UserOp IS in the mempool and WILL mine.
-    console.log(`\n[WARNING] Polling timed out, but the UserOperation was already`);
-    console.log(`submitted to Pimlico. It will be mined in the background.`);
-    receipt = null;
-  }
+  const settleResult = await sendAndWait(client, settleCallData, "Settle");
 
   return {
-    userOpHash: userOpHash,
-    txHash: receipt?.receipt?.transactionHash || "pending_in_mempool",
+    deployTxHash: deployResult?.receipt?.receipt?.transactionHash || null,
+    userOpHash: settleResult.userOpHash,
+    txHash: settleResult.receipt?.receipt?.transactionHash || "pending_in_mempool",
   };
 }

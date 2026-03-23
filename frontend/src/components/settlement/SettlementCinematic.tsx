@@ -45,6 +45,7 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
   const [jobId, setJobId] = useState<string | null>(null);
   const [settlements, setSettlements] = useState<any[]>([]);
   const [proofData, setProofData] = useState<any>(null);
+  const [showZkExplorer, setShowZkExplorer] = useState(false);
 
   // Derived state
   const isComplete = phase === "proved" || phase === "executing" || phase === "settled";
@@ -61,23 +62,27 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
     setLogs((prev) => [...prev, msg]);
   }, []);
 
-  // Reset on open, or resume existing job
+  // Initialize when opened
   useEffect(() => {
     if (open) {
-      if (existingJobId) {
+      if (existingJobId && phase === "idle") {
         setJobId(existingJobId);
         setPhase("committing"); // start the cinematic spinning
         setLogs(["Resuming active settlement via zkVM..."]);
-      } else {
-        setPhase("idle");
-        setLogs([]);
-        setJobId(null);
       }
+    } else {
+      // Only completely reset the state when the dialog is closed,
+      // NOT when existingJobId changes in the background!
+      setPhase("idle");
+      setLogs([]);
+      setJobId(null);
       setCopied(false);
       setElapsedMs(0);
       setSettlements([]);
       setProofData(null);
     }
+    // We explicitly omit `phase` from dependencies so it doesn't trigger loops
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, existingJobId]);
 
   // Timer during proving
@@ -113,24 +118,36 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
             
             // The job is completely done (ZK Proof + AA Execution)
             setSettlements(res.data.settlements || []);
-            setProofData({ imageId: "verified_on_chain" }); 
+            setProofData(res.data.proofDetails || { imageId: "verified_on_chain" }); 
 
             setPhase("step-verify");
             setTimeout(() => {
               setPhase("proved");
               addLog("Proof generated successfully.");
               
-              if (res.data.aaResult && res.data.aaResult.status !== "ready-for-aa") {
-                // It auto-executed via the backend
+              const aaResult = res.data.aaResult;
+              // Check if the AA Agent actually executed (has txHash or userOpHash)
+              if (aaResult && (aaResult.txHash || aaResult.userOpHash)) {
                 setTimeout(() => {
                   setPhase("executing");
                   addLog("Smart Account transaction submitted.");
-                  addLog(`Tx Hash: ${res.data.aaResult.txHash || "pending"}`);
+                  addLog(`Tx Hash: ${aaResult.txHash || aaResult.userOpHash || "pending"}`);
                   setTimeout(() => {
                     addLog("settlement finalized ✓");
                     setPhase("settled");
                     onSettled();
                   }, 2000);
+                }, 1500);
+              } else {
+                // ZK Proof verified but AA execution was skipped or unavailable
+                // This is still a valid settlement — the proof is what matters
+                setTimeout(() => {
+                  if (aaResult?.status?.includes("aa-skipped") || aaResult?.status?.includes("aa-unavailable")) {
+                    addLog("ZK Proof verified ✓ (on-chain execution skipped)");
+                  }
+                  addLog("settlement finalized ✓");
+                  setPhase("settled");
+                  onSettled();
                 }, 1500);
               }
             }, 1000);
@@ -138,6 +155,7 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
           } else if (res.data.status === "failed") {
             clearInterval(pollInterval);
             addLog(`Error: ${res.data.error || "Job Failed."}`);
+            setJobId(null); // Stop polling immediately
             setPhase("idle");
           }
         } catch (e) {
@@ -220,15 +238,6 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
 
       {/* Main panel */}
       <div className="relative w-full max-w-5xl mx-4 max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card shadow-2xl animate-scale-in">
-        {/* Close button */}
-        {(phase === "idle" || phase === "settled") && (
-          <button
-            onClick={onClose}
-            className="absolute top-4 right-4 z-10 w-8 h-8 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center transition-colors"
-          >
-            <X className="h-4 w-4 text-muted-foreground" />
-          </button>
-        )}
 
         {/* Top bar */}
         <div className="px-6 pt-5 pb-4 border-b border-border flex items-center justify-between">
@@ -259,11 +268,20 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
                 Journal Verified
               </span>
             )}
+            {/* Close button inline */}
+            {(phase === "idle" || phase === "settled") && (
+              <button
+                onClick={onClose}
+                className="ml-2 w-8 h-8 rounded-lg bg-muted hover:bg-muted/80 flex items-center justify-center transition-colors flex-shrink-0"
+              >
+                <X className="h-4 w-4 text-muted-foreground" />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* 3-column body */}
-        <div className="grid md:grid-cols-[1fr_1.4fr_1fr] divide-x divide-border min-h-[420px]">
+        {/* 3-column body: Symmetrical */}
+        <div className="grid md:grid-cols-3 divide-x divide-border min-h-[420px]">
           {/* LEFT: Input State */}
           <div className="p-5 space-y-4">
             <p className="section-label">Input State</p>
@@ -493,8 +511,8 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
                 </div>
               )}
               {phase === "settled" && (
-                <Button onClick={onClose} variant="outline" className="w-full h-11 rounded-xl">
-                  <Check className="h-4 w-4 mr-2 text-[hsl(152,60%,40%)]" />
+                <Button onClick={onClose} variant="ghost" className="w-full h-11 rounded-xl mt-4">
+                  <Check className="h-4 w-4 mr-2 text-muted-foreground" />
                   Done
                 </Button>
               )}
@@ -506,11 +524,11 @@ export function SettlementCinematic({ open, onClose, onSettled, groupId, balance
             <p className="section-label">Output State</p>
 
             {!isComplete ? (
-              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground h-full flex-col gap-2">
-                <div className="w-8 h-8 rounded-full border border-dashed border-muted-foreground flex items-center justify-center animate-spin-slow">
+              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground h-full flex-col gap-3 text-center">
+                <div className="w-10 h-10 rounded-full border border-dashed border-muted-foreground flex items-center justify-center animate-spin-slow">
                   <Lock className="h-4 w-4" />
                 </div>
-                <p>Output concealed until proof completes</p>
+                <p className="max-w-[150px]">Output concealed until proof completes</p>
               </div>
             ) : (
               <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-700">

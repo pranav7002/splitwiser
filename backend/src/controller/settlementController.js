@@ -8,9 +8,12 @@ import {
   sendError,
 } from "../utils/responseHelpers.js";
 import Job from "../models/Job.model.js";
+import Group from "../models/Group.model.js";
 import Expense from "../models/Expense.model.js";
+import crypto from "crypto";
 
 const processSettlementBackground = async (jobId, groupId) => {
+  let executionResult;
   try {
     await Job.findByIdAndUpdate(jobId, { status: "processing" });
 
@@ -27,7 +30,9 @@ const processSettlementBackground = async (jobId, groupId) => {
       })),
     };
 
+    console.log("[Settlement] Calling zkVM prover with input:", JSON.stringify(zkInput));
     const zkResult = await runZkVm(zkInput);
+    console.log("[Settlement] zkVM returned settlements:", zkResult.settlements?.length);
 
     const normalizedSettlements = zkResult.settlements;
 
@@ -41,61 +46,89 @@ const processSettlementBackground = async (jobId, groupId) => {
       );
 
       if (!fromUser?.smartAccountAddress || !toUser?.smartAccountAddress) {
+        console.error("[Settlement] Missing smart account:", {
+          from: s.from,
+          fromUser: fromUser ? { wallet: fromUser.walletAddress, sa: fromUser.smartAccountAddress } : "NOT FOUND",
+          to: s.to,
+          toUser: toUser ? { wallet: toUser.walletAddress, sa: toUser.smartAccountAddress } : "NOT FOUND",
+        });
         throw new Error("Missing Smart Account mapping for participant(s)");
       }
 
       return {
         from: fromUser.smartAccountAddress,
         to: toUser.smartAccountAddress,
-        amount: String(s.amount), // String value of BigInt amount
+        amount: String(s.amount),
       };
     });
 
     const groupDoc = await Group.findById(groupId.trim()).populate("createdBy", "walletAddress").lean();
     if (!groupDoc) throw new Error("Group not found");
 
+    console.log("[Settlement] Group found:", groupDoc.name, "onChainAddress:", groupDoc.onChainAddress);
+
     const executionUrl = process.env.EXECUTION_SERVICE_URL;
 
     if (executionUrl) {
+      // Create a compact 32-byte proof commitment for on-chain use.
+      const proofCommitment = "0x" + crypto
+        .createHash("sha256")
+        .update(zkResult.proof || "no-proof")
+        .digest("hex");
+
+      const payload = {
+        settlements: aaSettlements,
+        proof: proofCommitment,
+        groupName: groupDoc.name,
+        creatorAddress: groupDoc.createdBy?.walletAddress,
+        targetContract: groupDoc.onChainAddress,
+      };
+
+      console.log("[Settlement] Sending to AA Agent...");
+
       const response = await fetch(executionUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          settlements: aaSettlements,
-          proof: zkResult.proof || "0xdeadbeef",
-          groupName: groupDoc.name,
-          creatorAddress: groupDoc.createdBy?.walletAddress,
-          targetContract: groupDoc.onChainAddress,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const text = await response.text();
+      console.log("[Settlement] AA Agent response:", text.slice(0, 500));
+
+      let data;
       try {
-        const data = JSON.parse(text);
-        if (!data.success) {
-          throw new Error(JSON.stringify(data));
-        }
-        executionResult = data.results;
-      } catch (err) {
-        throw new Error("Execution service failed: " + text);
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error("Execution service returned non-JSON: " + text.slice(0, 500));
       }
+
+      if (!data.success) {
+        throw new Error("Execution service failed: " + JSON.stringify(data).slice(0, 500));
+      }
+
+      executionResult = data.results;
+      console.log("[Settlement] AA execution succeeded:", JSON.stringify(executionResult));
     }
 
-    // Persist 'Settled' state back into MongoDB so we don't double-process 
+    // Persist 'Settled' state back into MongoDB so we don't double-process
     await Expense.updateMany(
       { group: groupId.trim(), isSettled: false },
       { $set: { isSettled: true } }
     );
 
     await Job.findByIdAndUpdate(jobId, {
-      status: "success",
-      settlements: normalizedSettlements,
-      aaResult: executionResult || { status: "ready-for-aa" },
-      proofDetails: {
-        proof: zkResult.proof,
-        imageId: zkResult.imageId,
-      },
+      $set: {
+        status: "success",
+        settlements: normalizedSettlements,
+        aaResult: executionResult || { status: "ready-for-aa" },
+        proofDetails: {
+          proof: zkResult.proof,
+          imageId: zkResult.imageId,
+        },
+      }
     });
+
+    console.log("[Settlement] Job completed successfully:", jobId);
   } catch (err) {
     console.error("Background Settlement Error:", err);
     await Job.findByIdAndUpdate(jobId, {
@@ -122,11 +155,10 @@ export const settleGroupAsync = async (req, res) => {
     // Kick off background processing asynchronously
     processSettlementBackground(job._id, groupId.trim());
 
-    return res.status(202).json({
-      success: true,
+    return sendSuccess(res, {
       message: "Settlement job created and processing in background.",
       jobId: job._id,
-    });
+    }, 202);
   } catch (err) {
     return sendError(res, err.message, 500);
   }

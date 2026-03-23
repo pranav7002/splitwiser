@@ -66,11 +66,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    if (isConnecting) return; // Prevent double trigger
+
     setIsConnecting(true);
+    
+    // Safety timeout to reset state if MetaMask hangs
+    const timeoutId = setTimeout(() => {
+      setIsConnecting(false);
+      console.warn("Wallet connection timed out.");
+    }, 15000);
+
     try {
-      const accounts: string[] = await ethereum.request({
-        method: "eth_requestAccounts",
-      });
+      // Some browsers/extensions need permissions specifically
+      let accounts: string[];
+      try {
+        accounts = await ethereum.request({
+          method: "eth_requestAccounts",
+        });
+      } catch (reqErr: any) {
+        // If there's a pending request, try to get permissions again
+        if (reqErr.code === -32002) {
+          alert("A wallet request is already pending. Please open MetaMask manually to approve it.");
+          throw reqErr;
+        }
+        throw reqErr;
+      }
 
       if (!accounts || accounts.length === 0) {
         throw new Error("No accounts returned from MetaMask.");
@@ -81,16 +101,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       localStorage.setItem("splitwiser_wallet", walletAddress);
       setCurrentUser(user);
+      clearTimeout(timeoutId);
     } catch (err: any) {
       console.error("Wallet connection failed:", err);
-      if (err?.code !== 4001) {
-        // 4001 = user rejected — don't alert for that
-        alert("Failed to connect wallet. Check console for details.");
+      clearTimeout(timeoutId);
+      if (err?.code !== 4001 && err?.code !== -32002) {
+        alert("Failed to connect wallet: " + (err.message || "Unknown error"));
       }
     } finally {
       setIsConnecting(false);
     }
-  }, []);
+  }, [isConnecting]);
 
   const disconnectWallet = useCallback(() => {
     localStorage.removeItem("splitwiser_wallet");

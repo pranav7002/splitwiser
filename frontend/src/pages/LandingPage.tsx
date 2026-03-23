@@ -1,10 +1,30 @@
-import { Link } from "react-router-dom";
-import { ArrowRight, Lock, RefreshCw, ShieldCheck, Users, Zap } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowRight, Lock, RefreshCw, ShieldCheck, Users, Zap, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollReveal } from "@/components/ScrollReveal";
+import { useSession } from "@/contexts/SessionContext";
 
 
 export default function LandingPage() {
+  const { currentUser, connectWallet, isConnecting } = useSession();
+  const navigate = useNavigate();
+
+  // Reactive navigation: as soon as we have a user, go to dashboard
+  useEffect(() => {
+    if (currentUser) {
+      navigate("/dashboard");
+    }
+  }, [currentUser, navigate]);
+
+  const handleLaunch = async () => {
+    if (currentUser) {
+      navigate("/dashboard");
+    } else {
+      await connectWallet();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background overflow-hidden">
       {/* Nav */}
@@ -18,12 +38,10 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-6">
             <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:block">About</a>
-            <Link to="/dashboard">
-              <Button size="sm" className="rounded-full px-5">
-                Launch App
-                <ArrowRight className="ml-1 h-3.5 w-3.5" />
-              </Button>
-            </Link>
+            <Button size="sm" className="rounded-full px-5" onClick={handleLaunch} disabled={isConnecting}>
+              {isConnecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Launch App"}
+              {!isConnecting && <ArrowRight className="ml-1 h-3.5 w-3.5" />}
+            </Button>
           </div>
         </div>
       </nav>
@@ -52,12 +70,25 @@ export default function LandingPage() {
             className="flex items-center justify-center gap-4 opacity-0 animate-fade-up"
             style={{ animationDelay: "200ms" }}
           >
-            <Link to="/dashboard">
-              <Button variant="default" size="lg" className="rounded-full px-8 h-12 text-sm font-semibold group">
-                Launch Dashboard
-                <ArrowRight className="ml-1.5 h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
-              </Button>
-            </Link>
+            <Button 
+              variant="default" 
+              size="lg" 
+              className="rounded-full px-8 h-12 text-sm font-semibold group"
+              onClick={handleLaunch}
+              disabled={isConnecting}
+            >
+              {isConnecting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Connecting...
+                </>
+              ) : (
+                <>
+                  Launch Dashboard
+                  <ArrowRight className="ml-1.5 h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" />
+                </>
+              )}
+            </Button>
           </div>
         </div>
       </section>
@@ -129,49 +160,46 @@ export default function LandingPage() {
             <p className="text-sm text-muted-foreground">Built for transparency. Designed for trust.</p>
           </ScrollReveal>
 
-          <div className="grid md:grid-cols-3 gap-4">
-            <ScrollReveal className="md:col-span-2 md:row-span-2">
-              <div className="h-full rounded-2xl border border-border bg-card p-8 flex flex-col justify-end">
-                <div className="w-16 h-16 rounded-2xl bg-muted flex items-center justify-center mb-6">
-                  <Lock className="h-7 w-7 text-muted-foreground" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <ScrollReveal className="md:col-span-2">
+              <div className="h-full rounded-3xl border border-border bg-card p-10 flex flex-col items-center text-center justify-center min-h-[320px] transition-all duration-300 hover:shadow-xl hover:-translate-y-1 group">
+                <div className="w-20 h-20 rounded-2xl bg-muted flex items-center justify-center mb-8 group-hover:scale-110 transition-transform duration-300">
+                  <Lock className="h-9 w-9 text-muted-foreground" />
                 </div>
-                <p className="section-label mb-2">The Vault</p>
-                <h3 className="text-xl font-semibold mb-2">No IOUs. Funds are locked in escrow.</h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-primary/60 mb-3">The Vault</p>
+                <h3 className="text-3xl font-bold mb-4 tracking-tight">No IOUs. Funds are locked in escrow.</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed max-w-md">
                   Before the trip even starts, everyone's contribution is safely locked in a smart contract. No more chasing payments.
                 </p>
               </div>
             </ScrollReveal>
 
-
             <ScrollReveal delay={160}>
-              <div className="rounded-2xl border border-border bg-card p-6">
-                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
-                  <RefreshCw className="h-4.5 w-4.5 text-primary" />
+              <div className="h-full rounded-3xl border border-border bg-card p-8 flex flex-col items-center text-center justify-center min-h-[320px] transition-all duration-300 hover:shadow-xl hover:-translate-y-1 group">
+                <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
+                  <RefreshCw className="h-7 w-7 text-primary" />
                 </div>
-                <p className="section-label mb-1">Instant Refund</p>
-                <h3 className="font-semibold mb-1">One-Click Settle</h3>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-primary/60 mb-2">Instant Refund</p>
+                <h3 className="text-xl font-bold mb-3">One-Click Settle</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   When the trip ends, settle all debts with a single transaction.
                 </p>
               </div>
             </ScrollReveal>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4">
             {[
               { icon: ShieldCheck, title: "ZK Verification", desc: "Settlements verified by zero-knowledge proofs" },
               { icon: Users, title: "Group Splitting", desc: "Invite friends via wallet address" },
               { icon: Zap, title: "Smart Accounts", desc: "Gasless settlements via account abstraction" },
             ].map((item, i) => (
-              <ScrollReveal key={item.title} delay={i * 80}>
-                <div className="rounded-2xl border border-border bg-card p-5 flex items-start gap-4">
-                  <div className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-                    <item.icon className="h-4 w-4 text-muted-foreground" />
+              <ScrollReveal key={item.title} delay={i * 80 + 200}>
+                <div className="h-full rounded-2xl border border-border bg-card p-6 flex flex-col items-center text-center gap-4 transition-all duration-300 hover:border-primary/30 hover:bg-primary/[0.01] hover:-translate-y-1">
+                  <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
+                    <item.icon className="h-5 w-5 text-muted-foreground" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-semibold mb-0.5">{item.title}</h4>
-                    <p className="text-xs text-muted-foreground">{item.desc}</p>
+                    <h4 className="text-sm font-semibold mb-1.5">{item.title}</h4>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed text-balance">{item.desc}</p>
                   </div>
                 </div>
               </ScrollReveal>

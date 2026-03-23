@@ -1,6 +1,27 @@
 import Group from "../models/Group.model.js";
 import User from "../models/User.model.js";
 import Expense from "../models/Expense.model.js";
+import { createPublicClient, http } from "viem";
+import { sepolia } from "viem/chains";
+
+const publicClient = createPublicClient({
+  chain: sepolia,
+  transport: http("https://ethereum-sepolia-rpc.publicnode.com"),
+});
+
+const SIMPLE_ACCOUNT_FACTORY = "0x9406Cc6185a346906296840746125a0E44976454";
+const FACTORY_ABI = [
+  {
+    "inputs": [
+      { "internalType": "address", "name": "owner", "type": "address" },
+      { "internalType": "uint256", "name": "salt", "type": "uint256" }
+    ],
+    "name": "getAddress",
+    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "stateMutability": "view",
+    "type": "function"
+  }
+];
 
 const normalizeId = (value) => String(value).trim();
 
@@ -54,8 +75,31 @@ export const getGroupSettlementContext = async (groupId) => {
     { _id: 1, name: 1, walletAddress: 1, smartAccountAddress: 1 }
   ).lean();
 
+  const resolvedUsers = await Promise.all(
+    users.map(async (u) => {
+      if (u.smartAccountAddress) return u;
+
+      try {
+        console.log(`Resolving missing Smart Account for ${u.walletAddress}...`);
+        const predicted = await publicClient.readContract({
+          address: SIMPLE_ACCOUNT_FACTORY,
+          abi: FACTORY_ABI,
+          functionName: "getAddress",
+          args: [u.walletAddress, 0n],
+        });
+
+        // Update DB in background
+        await User.findByIdAndUpdate(u._id, { smartAccountAddress: predicted.toLowerCase() });
+        return { ...u, smartAccountAddress: predicted.toLowerCase() };
+      } catch (err) {
+        console.error(`Failed to resolve Smart Account for ${u.walletAddress}:`, err.message);
+        return u;
+      }
+    })
+  );
+
   const userMap = new Map(
-    users.map((u) => [
+    resolvedUsers.map((u) => [
       String(u._id),
       {
         userId: String(u._id),
